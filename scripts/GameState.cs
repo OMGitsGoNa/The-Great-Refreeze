@@ -86,8 +86,30 @@ public sealed class GameState
     public double Progress => Math.Min(1.0, (double)PlacedCubes / GoalCubes);
     public bool Won => PlacedCubes >= GoalCubes;
 
-    /// <summary>Acción de la cubitera, al completar la carga.</summary>
-    public void UseTray() => Ice += IcePerUse;
+    /// <summary>Capacidad máxima del cubo que recoge el hielo de la cubitera.</summary>
+    public const int BucketCapacity = 10;
+
+    /// <summary>Hielo que hay ahora mismo en el cubo.</summary>
+    public double BucketIce { get; private set; }
+
+    public bool IsBucketFull => BucketIce >= BucketCapacity;
+
+    /// <summary>Acción de la cubitera al completar la carga: deja hielo en el cubo. Devuelve cuánto ha entrado.</summary>
+    public double UseTray()
+    {
+        double added = Math.Min(IcePerUse, BucketCapacity - BucketIce);
+        BucketIce += added;
+        return added;
+    }
+
+    /// <summary>Pasa todo el hielo del cubo al inventario. Devuelve cuánto ha pasado.</summary>
+    public double TakeBucketIce()
+    {
+        double taken = BucketIce;
+        Ice += taken;
+        BucketIce = 0;
+        return taken;
+    }
 
     /// <summary>Producción automática de los congeladores.</summary>
     public void Tick(double deltaSeconds) => Ice += IcePerSecond * deltaSeconds;

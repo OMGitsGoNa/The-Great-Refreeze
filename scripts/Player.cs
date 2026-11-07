@@ -25,6 +25,8 @@ public partial class Player : CharacterBody3D
 
     private const float Speed = 5.0f;
     private const float SprintMultiplier = 1.8f;
+    private const float WaterLevel = -0.8f;   // superficie del agua
+    private const float SwimSpeed = 4.0f;     // velocidad al nadar hacia arriba con Espacio
     private const float JumpVelocity = 4.5f;
     private const float Gravity = 9.8f;
     private const float MouseSensitivity = 0.0025f;
@@ -101,8 +103,16 @@ public partial class Player : CharacterBody3D
     public override void _PhysicsProcess(double delta)
     {
         Vector3 velocity = Velocity;
+        bool inWater = GlobalPosition.Y < WaterLevel;
 
-        if (!IsOnFloor())
+        if (inWater)
+        {
+            // En el agua flotas: te hundes despacio y nadas hacia arriba con Espacio.
+            velocity.Y = Mathf.Max(velocity.Y - Gravity * 0.2f * (float)delta, -1.5f);
+            if (Input.IsPhysicalKeyPressed(Key.Space))
+                velocity.Y = SwimSpeed;
+        }
+        else if (!IsOnFloor())
             velocity.Y -= Gravity * (float)delta;
         else if (Input.IsPhysicalKeyPressed(Key.Space))
             velocity.Y = JumpVelocity;
@@ -117,7 +127,7 @@ public partial class Player : CharacterBody3D
         }
 
         bool sprinting = CanSprint && Input.IsPhysicalKeyPressed(Key.Shift);
-        float speed = sprinting ? Speed * SprintMultiplier : Speed;
+        float speed = inWater ? Speed * 0.6f : (sprinting ? Speed * SprintMultiplier : Speed);
 
         Vector3 direction = (Transform.Basis * new Vector3(x, 0, z)).Normalized();
         velocity.X = direction.X * speed;

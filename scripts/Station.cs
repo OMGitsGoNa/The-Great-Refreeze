@@ -7,6 +7,7 @@ public enum StationKind
     Tray,     // la cubitera: aquí se hace hielo a mano
     Upgrades, // máquina de mejoras
     Sell,     // envío de peces a empresas
+    Bucket,   // cubo donde cae el hielo de la cubitera
 }
 
 /// <summary>

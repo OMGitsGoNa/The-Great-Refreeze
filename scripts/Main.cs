@@ -51,7 +51,6 @@ public partial class Main : Node3D
     private double _placeCooldown;
 
     private double _chargeTime;    // segundos que llevas manteniendo E en la cubitera
-    private bool _chargeDone;      // ya cargaste; hay que soltar E para volver a cargar
 
     private int _bearCount;
 
@@ -127,6 +126,13 @@ public partial class Main : Node3D
                 OpenMenu();
                 break;
 
+            case StationKind.Bucket:
+                double taken = _state.TakeBucketIce();
+                ShowMessage(taken > 0
+                    ? $"Has cogido {Fmt(taken)} de hielo"
+                    : "El cubo está vacío");
+                break;
+
             case StationKind.Sell:
                 double earned = _state.SellFish();
                 ShowMessage(earned > 0
@@ -144,22 +150,24 @@ public partial class Main : Node3D
         bool eHeld = Input.IsPhysicalKeyPressed(Key.E);
         bool onTray = _player.LookedStation?.Kind == StationKind.Tray;
 
-        if (eHeld && onTray && !_chargeDone)
+        if (eHeld && onTray && _state.IsBucketFull)
+        {
+            ShowMessage("El cubo está lleno: cógelo con E antes de seguir");
+        }
+
+        if (eHeld && onTray && !_state.IsBucketFull)
         {
             _chargeTime += delta;
             if (_chargeTime >= ChargeSeconds)
             {
-                _state.UseTray();
-                ShowMessage($"+{Fmt(_state.IcePerUse)} de hielo");
-                _chargeTime = 0;
-                _chargeDone = true;
+                double added = _state.UseTray();
+                ShowMessage($"+{Fmt(added)} de hielo al cubo");
+                _chargeTime = 0; // si sigues con E, empieza otra carga enseguida
             }
         }
         else
         {
-            if (!eHeld)
-                _chargeDone = false;
-            _chargeTime = 0; // cancelar pierde lo que llevabas cargado
+            _chargeTime = 0; // soltar E cancela lo que llevabas cargado
         }
 
         _chargeBar.Visible = _chargeTime > 0;
@@ -380,6 +388,9 @@ public partial class Main : Node3D
 
         MakeStation(StationKind.Sell, "[E] Enviar peces a empresas", "Empresas",
             new Vector3(-6, 0, 4), new Vector3(1.6f, 1.4f, 1.6f), new Color(0.2f, 0.7f, 0.6f));
+
+        MakeStation(StationKind.Bucket, "", "Cubo",
+            new Vector3(-1.2f, 0, -4), new Vector3(0.7f, 0.6f, 0.7f), new Color(0.8f, 0.8f, 0.85f));
     }
 
     private void MakeStation(StationKind kind, string prompt, string title, Vector3 position, Vector3 size, Color color)
@@ -451,13 +462,12 @@ public partial class Main : Node3D
             }
         }
 
-        _ghost.Visible = _aimHit;
-        if (_aimHit)
+        // La sombra solo aparece donde se puede colocar hielo.
+        _ghost.Visible = _aimValid;
+        if (_aimValid)
         {
             _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.CubeHeight / 2f, 0f);
-            _ghostMaterial.AlbedoColor = _aimValid
-                ? new Color(0.3f, 1f, 0.4f, 0.45f)
-                : new Color(1f, 0.3f, 0.3f, 0.45f);
+            _ghostMaterial.AlbedoColor = new Color(0.3f, 1f, 0.4f, 0.45f);
         }
     }
 
@@ -544,7 +554,7 @@ public partial class Main : Node3D
         if (!_menuOpen)
         {
             if (_player.LookedStation != null)
-                prompt.AppendLine(_player.LookedStation.Prompt);
+                prompt.AppendLine(StationPrompt(_player.LookedStation));
             else if (_aimValid && _state.IceCubes >= 1)
                 prompt.AppendLine(_state.HasAgileHands
                     ? "[mantén clic izquierdo] Colocar hielo"
@@ -570,4 +580,9 @@ public partial class Main : Node3D
     }
 
     private static string FormatMoney(double value) => $"{value:0.00} $";
+
+    /// <summary>Texto de aviso para una estación. El cubo muestra cuánto hielo tiene.</summary>
+    private string StationPrompt(Station station) => station.Kind == StationKind.Bucket
+        ? $"[E] Coger hielo del cubo ({_state.BucketIce:0} / {GameState.BucketCapacity})"
+        : station.Prompt;
 }
