@@ -13,10 +13,10 @@ public partial class IceGrid : Node3D
     public const float CellSize = 2f;
     public const float CubeHeight = 1f;
 
-    /// <summary>Un sector son 4 x 4 celdas.</summary>
-    public const int SectorCells = 4;
+    /// <summary>Un sector son 10 x 10 celdas.</summary>
+    public const int SectorCells = 10;
 
-    /// <summary>Lado de un sector en unidades del mundo (8 con los valores actuales).</summary>
+    /// <summary>Lado de un sector en unidades del mundo (20 con los valores actuales).</summary>
     public const float SectorUnits = SectorCells * CellSize;
 
     /// <summary>Separación visual entre cubos para que se distingan. La colisión no tiene hueco.</summary>
@@ -28,6 +28,7 @@ public partial class IceGrid : Node3D
     private static readonly Vector2I[] Neighbors = { Vector2I.Right, Vector2I.Left, Vector2I.Up, Vector2I.Down };
 
     private readonly HashSet<Vector2I> _occupied = new();
+    private readonly HashSet<Vector2I> _dock = new(); // celdas del muelle: no se pueden convertir en hielo
 
     private BoxMesh _mesh;
     private BoxShape3D _shape;
@@ -43,33 +44,51 @@ public partial class IceGrid : Node3D
     public static Vector2I WorldToCell(Vector3 point) =>
         new(Mathf.FloorToInt(point.X / CellSize), Mathf.FloorToInt(point.Z / CellSize));
 
+    /// <summary>Sector al que pertenece una celda. Usa redondeo hacia abajo: funciona en negativo.</summary>
+    public static Vector2I CellToSector(Vector2I cell) =>
+        new(Mathf.FloorToInt((float)cell.X / SectorCells), Mathf.FloorToInt((float)cell.Y / SectorCells));
+
     /// <summary>Centro de la celda a la altura de la superficie (y = 0).</summary>
     public static Vector3 CellCenter(Vector2I cell) =>
         new((cell.X + 0.5f) * CellSize, 0f, (cell.Y + 0.5f) * CellSize);
 
     public bool IsOccupied(Vector2I cell) => _occupied.Contains(cell);
 
-    /// <summary>Sector al que pertenece una celda. Usa división con redondeo hacia abajo: funciona en negativo.</summary>
-    public static Vector2I CellToSector(Vector2I cell) =>
-        new(Mathf.FloorToInt((float)cell.X / SectorCells), Mathf.FloorToInt((float)cell.Y / SectorCells));
+    /// <summary>Marca una celda del muelle como ocupada sin crear hielo.</summary>
+    public void MarkOccupied(Vector2I cell)
+    {
+        _occupied.Add(cell);
+        _dock.Add(cell);
+    }
 
-    /// <summary>Cuántas celdas de un sector están ocupadas (muelle o hielo).</summary>
-    public int CountOccupiedIn(Vector2I sector)
+    /// <summary>Cubos de hielo colocados en un sector (sin contar el muelle).</summary>
+    public int CountCubesIn(Vector2I sector)
     {
         int count = 0;
         for (int x = 0; x < SectorCells; x++)
             for (int z = 0; z < SectorCells; z++)
             {
                 var cell = new Vector2I(sector.X * SectorCells + x, sector.Y * SectorCells + z);
-                if (_occupied.Contains(cell)) count++;
+                if (_occupied.Contains(cell) && !_dock.Contains(cell)) count++;
             }
         return count;
     }
 
-    public bool IsSectorFull(Vector2I sector) => CountOccupiedIn(sector) == SectorCells * SectorCells;
+    /// <summary>Celdas de un sector donde se puede poner hielo (todas menos las del muelle).</summary>
+    public int CountFreeCellsIn(Vector2I sector)
+    {
+        int count = 0;
+        for (int x = 0; x < SectorCells; x++)
+            for (int z = 0; z < SectorCells; z++)
+            {
+                var cell = new Vector2I(sector.X * SectorCells + x, sector.Y * SectorCells + z);
+                if (!_dock.Contains(cell)) count++;
+            }
+        return count;
+    }
 
-    /// <summary>Marca una celda como ocupada sin crear nada (se usa para el muelle).</summary>
-    public void MarkOccupied(Vector2I cell) => _occupied.Add(cell);
+    /// <summary>Un sector está completo cuando tiene cubos en todas sus celdas libres.</summary>
+    public bool IsSectorFull(Vector2I sector) => CountCubesIn(sector) >= CountFreeCellsIn(sector);
 
     /// <summary>Se puede colocar si la celda está libre y toca (en cruz) una celda ocupada.</summary>
     public bool CanPlace(Vector2I cell)

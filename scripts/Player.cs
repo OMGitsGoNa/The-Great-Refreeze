@@ -14,10 +14,17 @@ public partial class Player : CharacterBody3D
     /// <summary>Cámara del jugador: sirve para saber a qué punto del agua apunta.</summary>
     public Camera3D Camera => _camera;
 
+    /// <summary>Si está activo, el jugador no se mueve ni mira (por ejemplo, con un menú abierto).</summary>
+    public bool Frozen { get; set; }
+
+    /// <summary>Permite correr manteniendo Shift.</summary>
+    public bool CanSprint { get; set; }
+
     /// <summary>La estación que se está mirando ahora mismo (o null).</summary>
     public Station LookedStation { get; private set; }
 
     private const float Speed = 5.0f;
+    private const float SprintMultiplier = 1.8f;
     private const float JumpVelocity = 4.5f;
     private const float Gravity = 9.8f;
     private const float MouseSensitivity = 0.0025f;
@@ -58,6 +65,9 @@ public partial class Player : CharacterBody3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (Frozen)
+            return;
+
         if (@event is InputEventMouseMotion motion && Input.MouseMode == Input.MouseModeEnum.Captured)
         {
             RotateY(-motion.Relative.X * MouseSensitivity);
@@ -100,9 +110,18 @@ public partial class Player : CharacterBody3D
         float x = (Input.IsPhysicalKeyPressed(Key.D) ? 1f : 0f) - (Input.IsPhysicalKeyPressed(Key.A) ? 1f : 0f);
         float z = (Input.IsPhysicalKeyPressed(Key.S) ? 1f : 0f) - (Input.IsPhysicalKeyPressed(Key.W) ? 1f : 0f);
 
+        if (Frozen)
+        {
+            x = 0;
+            z = 0;
+        }
+
+        bool sprinting = CanSprint && Input.IsPhysicalKeyPressed(Key.Shift);
+        float speed = sprinting ? Speed * SprintMultiplier : Speed;
+
         Vector3 direction = (Transform.Basis * new Vector3(x, 0, z)).Normalized();
-        velocity.X = direction.X * Speed;
-        velocity.Z = direction.Z * Speed;
+        velocity.X = direction.X * speed;
+        velocity.Z = direction.Z * speed;
 
         Velocity = velocity;
         MoveAndSlide();

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 using Godot;
 
@@ -5,8 +6,9 @@ namespace GreatRefreeze;
 
 /// <summary>
 /// Escena principal del prototipo. Construye el muelle, el agua, la rejilla de hielo,
-/// la cubitera, el jugador y el HUD.
-/// Colocar hielo: apunta al agua (se ve una sombra) y pulsa clic izquierdo.
+/// la cubitera, la máquina de mejoras, la máquina de envíos, los osos, el jugador y el HUD.
+/// Colocar hielo: apunta al agua y pulsa clic izquierdo (o mantenlo con Manos ágiles).
+/// Cubitera: mantén E frente a ella durante 2 segundos.
 /// Uso: escena con un Node3D como raíz y este script asignado.
 /// </summary>
 public partial class Main : Node3D
@@ -14,14 +16,21 @@ public partial class Main : Node3D
     /// <summary>Distancia máxima a la que se puede colocar hielo.</summary>
     private const float ReachDistance = 8f;
 
+    /// <summary>Tiempo entre cubos cuando mantienes el clic (con Manos ágiles).</summary>
+    private const float HoldInterval = 0.12f;
+
+    /// <summary>Segundos que hay que mantener E en la cubitera.</summary>
+    private const float ChargeSeconds = 2f;
+
     /// <summary>El muelle ocupa las celdas de -4 a 3 en X y en Z (16 x 16 unidades).</summary>
     private const int DockMinCell = -4;
     private const int DockMaxCell = 3;
 
-    private static readonly Key[] UpgradeKeys = { Key.Key1, Key.Key2, Key.Key3 };
+    private sealed record UpgradeRow(Upgrade Upgrade, Label Info, Button Button);
 
     private readonly GameState _state = new();
     private readonly IceGrid _grid = new();
+    private readonly List<UpgradeRow> _menuRows = new();
 
     private Player _player;
     private MeshInstance3D _ghost;
@@ -29,10 +38,22 @@ public partial class Main : Node3D
     private Label _statsLabel;
     private Label _promptLabel;
     private Label _winLabel;
+    private PanelContainer _menu;
+    private ProgressBar _chargeBar;
+
+    private bool _menuOpen;
+    private bool _menuJustOpened; // evita que la misma tecla E que abre el menú lo cierre
 
     private bool _aimHit;     // el punto que miras está a alcance
     private bool _aimValid;   // se puede colocar hielo ahí
     private Vector2I _aimCell;
+
+    private double _placeCooldown;
+
+    private double _chargeTime;    // segundos que llevas manteniendo E en la cubitera
+    private bool _chargeDone;      // ya cargaste; hay que soltar E para volver a cargar
+
+    private int _bearCount;
 
     private string _message = "";
     private double _messageTimer;
@@ -49,30 +70,50 @@ public partial class Main : Node3D
     public override void _Process(double delta)
     {
         _state.Tick(delta);
-        UpdateAim();
+        _menuJustOpened = false;
+        _placeCooldown -= delta;
+        _player.CanSprint = _state.HasSprint;
+
+        if (_menuOpen)
+        {
+            _aimHit = false;
+            _aimValid = false;
+            _ghost.Visible = false;
+        }
+        else
+        {
+            UpdateAim();
+            UpdateCharge(delta);
+
+            bool holding = Input.MouseMode == Input.MouseModeEnum.Captured
+                           && Input.IsMouseButtonPressed(MouseButton.Left);
+            if (holding && _state.HasAgileHands && _placeCooldown <= 0)
+            {
+                TryPlaceAtAim(quiet: true);
+                _placeCooldown = HoldInterval;
+            }
+        }
+
         UpdateHud(delta);
     }
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (@event is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left
-            && Input.MouseMode == Input.MouseModeEnum.Captured)
+        if (_menuOpen)
         {
-            TryPlaceAtAim();
+            if (!_menuJustOpened && @event is InputEventKey close && close.Pressed && !close.Echo
+                && (close.PhysicalKeycode == Key.Escape || close.PhysicalKeycode == Key.E))
+            {
+                CloseMenu();
+            }
             return;
         }
 
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-            return;
-
-        for (int i = 0; i < UpgradeKeys.Length; i++)
+        if (@event is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left
+            && Input.MouseMode == Input.MouseModeEnum.Captured)
         {
-            if (key.PhysicalKeycode != UpgradeKeys[i]) continue;
-
-            Upgrade upgrade = _state.Upgrades[i];
-            ShowMessage(_state.TryBuy(upgrade)
-                ? $"Comprado: {upgrade.Name} (nivel {upgrade.Level})"
-                : $"Te faltan {Fmt(upgrade.Cost - _state.Points)} puntos para {upgrade.Name}");
+            TryPlaceAtAim(quiet: false);
+            _placeCooldown = HoldInterval;
         }
     }
 
@@ -80,33 +121,71 @@ public partial class Main : Node3D
 
     private void OnStationUsed(Station station)
     {
-        if (station.Kind == StationKind.Tray)
+        switch (station.Kind)
         {
-            _state.UseTray();
-            ShowMessage($"+{Fmt(_state.IcePerUse)} de hielo");
+            case StationKind.Upgrades:
+                OpenMenu();
+                break;
+
+            case StationKind.Sell:
+                double earned = _state.SellFish();
+                ShowMessage(earned > 0
+                    ? $"Peces enviados: +{FormatMoney(earned)}"
+                    : "No tienes peces que enviar");
+                break;
+
+            // La cubitera no usa E al pulsar: se carga manteniéndolo (ver UpdateCharge).
         }
     }
 
-    private void TryPlaceAtAim()
+    /// <summary>Carga la cubitera mientras mantienes E. Soltar antes de tiempo cancela la carga.</summary>
+    private void UpdateCharge(double delta)
+    {
+        bool eHeld = Input.IsPhysicalKeyPressed(Key.E);
+        bool onTray = _player.LookedStation?.Kind == StationKind.Tray;
+
+        if (eHeld && onTray && !_chargeDone)
+        {
+            _chargeTime += delta;
+            if (_chargeTime >= ChargeSeconds)
+            {
+                _state.UseTray();
+                ShowMessage($"+{Fmt(_state.IcePerUse)} de hielo");
+                _chargeTime = 0;
+                _chargeDone = true;
+            }
+        }
+        else
+        {
+            if (!eHeld)
+                _chargeDone = false;
+            _chargeTime = 0; // cancelar pierde lo que llevabas cargado
+        }
+
+        _chargeBar.Visible = _chargeTime > 0;
+        _chargeBar.Value = _chargeTime / ChargeSeconds;
+    }
+
+    private void TryPlaceAtAim(bool quiet)
     {
         if (!_aimHit)
         {
-            ShowMessage("Apunta al agua para colocar hielo");
+            if (!quiet) ShowMessage("Apunta al agua para colocar hielo");
             return;
         }
         if (!_aimValid)
         {
-            ShowMessage("No puedes colocar hielo aquí: pégalo a lo que ya está colocado");
+            if (!quiet) ShowMessage("No puedes colocar hielo aquí: pégalo a lo que ya está colocado");
             return;
         }
         if (_state.IceCubes < 1)
         {
-            ShowMessage("No tienes hielo: usa la cubitera (E)");
+            if (!quiet) ShowMessage("No tienes hielo: mantén E en la cubitera");
             return;
         }
         if (!_grid.Place(_aimCell))
         {
-            ShowMessage("No puedes colocar hielo aquí");
+            if (!quiet) ShowMessage("No puedes colocar hielo aquí");
             return;
         }
 
@@ -115,13 +194,17 @@ public partial class Main : Node3D
 
         if (_grid.IsSectorFull(sector))
         {
-            _state.AddBonus(GameState.SectorBonus);
-            ShowMessage($"¡Sector completado! +{Fmt(GameState.SectorBonus)} puntos de bono");
+            _state.AddFish(GameState.SectorBonus);
+            ShowMessage($"¡Sector completado! +{Fmt(GameState.SectorBonus)} peces de bono");
         }
-        else
+        else if (!quiet)
         {
-            ShowMessage($"+{Fmt(_state.PointsPerCube)} puntos");
+            ShowMessage($"+{Fmt(_state.FishPerCube)} peces salvados");
         }
+
+        // Cada 50 cubos colocados aparece un oso polar sobre el último cubo.
+        if (_state.PlacedCubes % GameState.BearSpacingCubes == 0)
+            SpawnBear(_aimCell);
     }
 
     private void ShowMessage(string text)
@@ -130,40 +213,117 @@ public partial class Main : Node3D
         _messageTimer = 2.0;
     }
 
-    /// <summary>Calcula el punto del agua (y = 0) al que apunta la cámara.</summary>
-    private void UpdateAim()
+    // ---------------------------------------------------------------- osos polares
+
+    /// <summary>Crea un oso sobre el cubo indicado. Por ahora solo está ahí: su función aún no está definida.</summary>
+    private void SpawnBear(Vector2I cell)
     {
-        Camera3D cam = _player.Camera;
-        Vector3 origin = cam.GlobalPosition;
-        Vector3 dir = -cam.GlobalTransform.Basis.Z;
+        _bearCount++;
 
-        _aimHit = false;
-        _aimValid = false;
-
-        // Solo hay punto en la superficie si miras hacia abajo.
-        if (dir.Y < -0.01f)
+        var bear = new Node3D { Position = IceGrid.CellCenter(cell) + new Vector3(0f, 0.5f, 0f) };
+        bear.AddChild(new MeshInstance3D
         {
-            float t = -origin.Y / dir.Y;
-            if (t > 0 && t <= ReachDistance)
-            {
-                Vector3 hit = origin + dir * t;
-                _aimCell = IceGrid.WorldToCell(hit);
-                _aimHit = true;
+            Mesh = new CapsuleMesh { Radius = 0.4f, Height = 1.2f },
+            MaterialOverride = Mat(new Color(0.95f, 0.96f, 0.98f)),
+        });
+        bear.AddChild(new Label3D
+        {
+            Text = "Oso polar",
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            FontSize = 64,
+            PixelSize = 0.005f,
+            Position = new Vector3(0, 1.1f, 0),
+        });
+        AddChild(bear);
 
-                // No se puede colocar hielo donde estás de pie.
-                _aimValid = _grid.CanPlace(_aimCell)
-                            && _aimCell != IceGrid.WorldToCell(_player.GlobalPosition);
+        ShowMessage("¡Ha aparecido un oso polar!");
+    }
+
+    // ---------------------------------------------------------------- menú de mejoras
+
+    private void OpenMenu()
+    {
+        _menuOpen = true;
+        _menuJustOpened = true;
+        _menu.Visible = true;
+        _player.Frozen = true;
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+        RefreshMenu();
+    }
+
+    private void CloseMenu()
+    {
+        _menuOpen = false;
+        _menu.Visible = false;
+        _player.Frozen = false;
+        Input.MouseMode = Input.MouseModeEnum.Captured;
+    }
+
+    private void BuyUpgrade(Upgrade upgrade)
+    {
+        ShowMessage(_state.TryBuy(upgrade)
+            ? $"Comprado: {upgrade.Name}"
+            : $"Te faltan {FormatMoney(upgrade.Cost - _state.Money)} para {upgrade.Name}");
+        RefreshMenu();
+    }
+
+    private void RefreshMenu()
+    {
+        foreach (UpgradeRow row in _menuRows)
+        {
+            Upgrade u = row.Upgrade;
+            bool unlock = u.MaxLevel == 1;
+
+            string status = unlock
+                ? (u.IsMaxed ? "desbloqueado" : "bloqueado")
+                : $"nivel {u.Level}";
+            row.Info.Text = $"{u.Name}  ({status})\n{u.Description}";
+
+            if (u.IsMaxed)
+            {
+                row.Button.Text = unlock ? "Desbloqueado" : "Máximo";
+                row.Button.Disabled = true;
+            }
+            else
+            {
+                row.Button.Text = $"Comprar: {FormatMoney(u.Cost)}";
+                row.Button.Disabled = _state.Money < u.Cost;
             }
         }
+    }
 
-        _ghost.Visible = _aimHit;
-        if (_aimHit)
+    private void BuildMenu(CanvasLayer hud)
+    {
+        _menu = new PanelContainer
         {
-            _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.CubeHeight / 2f, 0f);
-            _ghostMaterial.AlbedoColor = _aimValid
-                ? new Color(0.3f, 1f, 0.4f, 0.45f)
-                : new Color(1f, 0.3f, 0.3f, 0.45f);
+            Visible = false,
+            CustomMinimumSize = new Vector2(620, 0),
+        };
+        _menu.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center);
+        _menu.GrowHorizontal = Control.GrowDirection.Both;
+        _menu.GrowVertical = Control.GrowDirection.Both;
+        hud.AddChild(_menu);
+
+        var box = new VBoxContainer();
+        _menu.AddChild(box);
+        box.AddChild(new Label { Text = "Máquina de mejoras", HorizontalAlignment = HorizontalAlignment.Center });
+
+        foreach (Upgrade upgrade in _state.Upgrades)
+        {
+            var row = new HBoxContainer();
+            var info = new Label { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+            var button = new Button { CustomMinimumSize = new Vector2(220, 0) };
+            button.Pressed += () => BuyUpgrade(upgrade);
+
+            row.AddChild(info);
+            row.AddChild(button);
+            box.AddChild(row);
+            _menuRows.Add(new UpgradeRow(upgrade, info, button));
         }
+
+        var close = new Button { Text = "Cerrar (E / Esc)" };
+        close.Pressed += CloseMenu;
+        box.AddChild(close);
     }
 
     // ---------------------------------------------------------------- mundo
@@ -212,8 +372,14 @@ public partial class Main : Node3D
         AddChild(_grid);
         AddChild(new SectorLines());
 
-        MakeStation(StationKind.Tray, "[E] Hacer hielo", "Cubitera",
+        MakeStation(StationKind.Tray, "[mantén E] Cargar hielo", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));
+
+        MakeStation(StationKind.Upgrades, "[E] Máquina de mejoras", "Mejoras",
+            new Vector3(4, 0, -4), new Vector3(1.6f, 1.6f, 1.6f), new Color(0.9f, 0.6f, 0.2f));
+
+        MakeStation(StationKind.Sell, "[E] Enviar peces a empresas", "Empresas",
+            new Vector3(-6, 0, 4), new Vector3(1.6f, 1.4f, 1.6f), new Color(0.2f, 0.7f, 0.6f));
     }
 
     private void MakeStation(StationKind kind, string prompt, string title, Vector3 position, Vector3 size, Color color)
@@ -259,6 +425,42 @@ public partial class Main : Node3D
         AddChild(_ghost);
     }
 
+    /// <summary>Calcula el punto del agua (y = 0) al que apunta la cámara.</summary>
+    private void UpdateAim()
+    {
+        Camera3D cam = _player.Camera;
+        Vector3 origin = cam.GlobalPosition;
+        Vector3 dir = -cam.GlobalTransform.Basis.Z;
+
+        _aimHit = false;
+        _aimValid = false;
+
+        // Solo hay punto en la superficie si miras hacia abajo.
+        if (dir.Y < -0.01f)
+        {
+            float t = -origin.Y / dir.Y;
+            if (t > 0 && t <= ReachDistance)
+            {
+                Vector3 hit = origin + dir * t;
+                _aimCell = IceGrid.WorldToCell(hit);
+                _aimHit = true;
+
+                // No se puede colocar hielo donde estás de pie.
+                _aimValid = _grid.CanPlace(_aimCell)
+                            && _aimCell != IceGrid.WorldToCell(_player.GlobalPosition);
+            }
+        }
+
+        _ghost.Visible = _aimHit;
+        if (_aimHit)
+        {
+            _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.CubeHeight / 2f, 0f);
+            _ghostMaterial.AlbedoColor = _aimValid
+                ? new Color(0.3f, 1f, 0.4f, 0.45f)
+                : new Color(1f, 0.3f, 0.3f, 0.45f);
+        }
+    }
+
     private static StandardMaterial3D Mat(Color color) => new() { AlbedoColor = color };
 
     // ---------------------------------------------------------------- HUD
@@ -278,7 +480,21 @@ public partial class Main : Node3D
         hud.AddChild(crosshair);
         crosshair.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
 
-        // Avisos: lo que puedes hacer con lo que miras y mensajes de compra o colocación.
+        // Barra de carga de la cubitera, bajo el centro de la pantalla.
+        _chargeBar = new ProgressBar
+        {
+            MinValue = 0,
+            MaxValue = 1,
+            ShowPercentage = false,
+            Visible = false,
+            CustomMinimumSize = new Vector2(300, 18),
+        };
+        _chargeBar.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom);
+        _chargeBar.OffsetTop = -150;
+        _chargeBar.OffsetBottom = -132;
+        hud.AddChild(_chargeBar);
+
+        // Avisos: lo que puedes hacer con lo que miras y mensajes.
         _promptLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom };
         StyleLabel(_promptLabel, 22);
         hud.AddChild(_promptLabel);
@@ -296,6 +512,8 @@ public partial class Main : Node3D
         hud.AddChild(_winLabel);
         _winLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _winLabel.OffsetBottom = -200;
+
+        BuildMenu(hud);
     }
 
     private static void StyleLabel(Label label, int fontSize)
@@ -309,42 +527,37 @@ public partial class Main : Node3D
     private void UpdateHud(double delta)
     {
         var text = new StringBuilder();
-        text.AppendLine($"Hielo: {_state.IceCubes}     Puntos: {Fmt(_state.Points)}");
-        text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)");
-        text.AppendLine();
+        text.AppendLine($"Hielo: {_state.IceCubes}     Peces salvados: {Fmt(_state.Fish)}     Dinero: {FormatMoney(_state.Money)}");
+        text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)     Osos polares: {_bearCount}");
 
-        for (int i = 0; i < _state.Upgrades.Count; i++)
-        {
-            Upgrade u = _state.Upgrades[i];
-            text.AppendLine($"[{i + 1}] {u.Name}  nivel {u.Level}  -  {Fmt(u.Cost)} puntos   ({u.Description})");
-        }
         // Progreso del sector donde estás.
         Vector2I sector = IceGrid.CellToSector(IceGrid.WorldToCell(_player.GlobalPosition));
-        bool onDock = sector.X is >= -1 and <= 0 && sector.Y is >= -1 and <= 0;
-        if (onDock)
-        {
-            text.AppendLine("Estás en el muelle");
-        }
-        else
-        {
-            int filled = _grid.CountOccupiedIn(sector);
-            int total = IceGrid.SectorCells * IceGrid.SectorCells;
-            text.AppendLine($"Sector ({sector.X}, {sector.Y}): {filled} / {total} cubos" + (filled == total ? "  ✓" : ""));
-        }
-
+        int filled = _grid.CountCubesIn(sector);
+        int free = _grid.CountFreeCellsIn(sector);
+        text.Append($"Sector ({sector.X}, {sector.Y}): {filled} / {free} cubos");
+        if (free > 0 && filled == free)
+            text.Append("  ✓");
         _statsLabel.Text = text.ToString();
 
         _messageTimer -= delta;
         var prompt = new StringBuilder();
-        if (_player.LookedStation != null)
-            prompt.AppendLine(_player.LookedStation.Prompt);
-        else if (_aimValid && _state.IceCubes >= 1)
-            prompt.AppendLine("[clic izquierdo] Colocar hielo");
+        if (!_menuOpen)
+        {
+            if (_player.LookedStation != null)
+                prompt.AppendLine(_player.LookedStation.Prompt);
+            else if (_aimValid && _state.IceCubes >= 1)
+                prompt.AppendLine(_state.HasAgileHands
+                    ? "[mantén clic izquierdo] Colocar hielo"
+                    : "[clic izquierdo] Colocar hielo");
+        }
         if (_messageTimer > 0)
             prompt.AppendLine(_message);
         _promptLabel.Text = prompt.ToString().TrimEnd();
 
         _winLabel.Visible = _state.Won;
+
+        if (_menuOpen)
+            RefreshMenu();
     }
 
     /// <summary>Formatea números grandes: 1234 -> 1234, 25000 -> 25K, 2500000 -> 2,5M.</summary>
@@ -355,4 +568,6 @@ public partial class Main : Node3D
         if (value >= 100) return $"{value:0}";
         return $"{value:0.#}";
     }
+
+    private static string FormatMoney(double value) => $"{value:0.00} $";
 }

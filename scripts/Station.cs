@@ -5,7 +5,8 @@ namespace GreatRefreeze;
 public enum StationKind
 {
     Tray,     // la cubitera: aquí se hace hielo a mano
-    Deposit,  // el punto donde se coloca el hielo en el Ártico
+    Upgrades, // máquina de mejoras
+    Sell,     // envío de peces a empresas
 }
 
 /// <summary>
