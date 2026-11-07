@@ -31,43 +31,47 @@ public sealed class Upgrade
 
 /// <summary>
 /// Toda la lógica del juego, sin nada de Godot: así es fácil de probar y de equilibrar.
-/// Flujo: la cubitera hace hielo que va al montón; el montón se derrite poco a poco;
+/// Flujo: la cubitera hace hielo que va al montón de la mesa; el montón se derrite poco a poco;
 /// con hielo en la mano (o en el cubo) se coloca y salva peces; las empresas pagan dinero
 /// por cada pez enviado; el dinero compra mejoras. Los números son provisionales.
 /// </summary>
 public sealed class GameState
 {
-    /// <summary>Cubos que hay que colocar en total para recongelar el Ártico (provisional).</summary>
+    /// <summary>Cubos que hay que colocar en total para recongelar el Ártico.</summary>
     public const int GoalCubes = 1_000_000;
 
     /// <summary>Hielo por segundo que produce cada congelador (va al montón).</summary>
     public const double FreezerRate = 0.5;
 
-    /// <summary>Dinero que pagan las empresas por cada pez enviado.</summary>
+    /// <summary>Dinero que pagan las empresas por cada pez enviado (1 pez = 1 cubo = 0,05 $).</summary>
     public const double FishPrice = 0.05;
 
-    /// <summary>Peces extra al completar un sector.</summary>
+    /// <summary>Peces base al completar un sector. Se multiplica por el anillo.</summary>
     public const double SectorBonus = 10;
 
-    /// <summary>Distancia, en cubos, desde el muelle a la que aparece el primer oso polar.</summary>
+    /// <summary>Distancia, en cubos, desde el muelle a la que está el oso polar.</summary>
     public const int BearDistanceCubes = 50;
 
     /// <summary>Peces que cuesta rescatar al oso polar (se pagan con peces, no con dinero).</summary>
     public const double BearFishCost = 100;
 
-    /// <summary>Capacidad del cubo (mejora). El hielo del cubo no se derrite.</summary>
-    public const int BucketCapacity = 10;
-
-    /// <summary>Hielo que se puede llevar en la mano sin cubo.</summary>
-    public const int HandCapacity = 1;
+    /// <summary>Máximo de hielos que caben sobre la mesa a la vez.</summary>
+    public const int PileCapacity = 10;
 
     /// <summary>Segundos entre derretimientos de un hielo del montón.</summary>
     public const double MeltSeconds = 15;
 
-    /// <summary>Máximo de hielos que caben sobre la mesa a la vez.</summary>
-    public const int PileCapacity = 10;
+    /// <summary>Hielo que se puede llevar en la mano sin cubo.</summary>
+    public const int HandCapacity = 1;
 
-    /// <summary>Montón de hielo junto a la cubitera (puede tener fracción por los congeladores).</summary>
+    /// <summary>Capacidad del cubo sin mejorar, y cuánto añade cada mejora.</summary>
+    public const int BucketBase = 10;
+    public const int BucketStep = 10;
+
+    /// <summary>Fracción de peces y dinero que se pierde al congelarse en el agua.</summary>
+    public const double DrowningPenalty = 0.10;
+
+    /// <summary>Montón de hielo sobre la mesa (puede tener fracción por los congeladores).</summary>
     public double Ice { get; private set; }
 
     /// <summary>Hielo en la mano sin cubo (0 o 1).</summary>
@@ -85,8 +89,9 @@ public sealed class GameState
 
     private double _meltTimer;
 
-    // Precios divididos entre 10 respecto a la versión anterior (ahora en dinero).
-    public Upgrade Bucket { get; } = new("Cubo", "Lleva el hielo en la mano (hasta 10, no se derrite)", 5, 1.0, 1);
+    // Precios: el cubo cuesta 5 $; su primera mejora de capacidad, 1 $.
+    public Upgrade Bucket { get; } = new("Cubo", "Lleva el hielo en la mano (no se derrite)", 5, 1.0, 1);
+    public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad (máximo 50)", 1, 1.6, 4);
     public Upgrade Tray { get; } = new("Cubitera grande", "+1 hielo por carga", 1, 1.6);
     public Upgrade Freezer { get; } = new("Congelador", "+0,5 hielo/s al montón", 4, 1.35);
     public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 3, 2.0);
@@ -97,12 +102,15 @@ public sealed class GameState
 
     public GameState()
     {
-        Upgrades = new[] { Bucket, Tray, Freezer, Shovel, AgileHands, Sprint };
+        Upgrades = new[] { Bucket, BucketCapacityUpgrade, Tray, Freezer, Shovel, AgileHands, Sprint };
     }
 
     public bool HasBucket => Bucket.Level > 0;
     public bool HasAgileHands => AgileHands.Level > 0;
     public bool HasSprint => Sprint.Level > 0;
+
+    /// <summary>Capacidad actual del cubo: 10, 20, 30, 40 o 50.</summary>
+    public int BucketMax => BucketBase + BucketStep * BucketCapacityUpgrade.Level;
 
     public double IcePerUse => 1 + Tray.Level;
     public double IcePerSecond => Freezer.Level * FreezerRate;
@@ -120,7 +128,7 @@ public sealed class GameState
     public double Progress => Math.Min(1.0, (double)PlacedCubes / GoalCubes);
     public bool Won => PlacedCubes >= GoalCubes;
 
-    public bool IsBucketFull => BucketIce >= BucketCapacity;
+    public bool IsBucketFull => BucketIce >= BucketMax;
 
     /// <summary>Producción de los congeladores y derretimiento del montón.</summary>
     public void Tick(double deltaSeconds)
@@ -164,7 +172,7 @@ public sealed class GameState
 
         if (bucketInHand)
         {
-            int moved = Math.Min(IceCubes, BucketCapacity - BucketIce);
+            int moved = Math.Min(IceCubes, BucketMax - BucketIce);
             if (moved <= 0)
                 return 0;
 
@@ -184,7 +192,7 @@ public sealed class GameState
     /// <summary>Al coger el cubo, el hielo de la mano pasa a él (si cabe).</summary>
     public void PutHandIceInBucket()
     {
-        int moved = Math.Min(HandIce, BucketCapacity - BucketIce);
+        int moved = Math.Min(HandIce, BucketMax - BucketIce);
         if (moved <= 0)
             return;
 
@@ -233,6 +241,13 @@ public sealed class GameState
     /// <summary>Peces extra, por ejemplo el bono de sector.</summary>
     public void AddFish(double amount) => Fish += amount;
 
+    /// <summary>Al congelarse en el agua pierdes un 10% de los peces y del dinero.</summary>
+    public void ApplyDrowningPenalty()
+    {
+        Fish *= 1 - DrowningPenalty;
+        Money *= 1 - DrowningPenalty;
+    }
+
     /// <summary>Envía los peces enteros a las empresas. Devuelve el dinero ganado.</summary>
     public double SellFish()
     {
@@ -246,11 +261,17 @@ public sealed class GameState
         return earned;
     }
 
-    /// <summary>Intenta comprar una mejora. Devuelve false si ya está al máximo o no hay dinero.</summary>
+    /// <summary>
+    /// Intenta comprar una mejora. Devuelve false si ya está al máximo, no hay dinero
+    /// o la mejora del cubo requiere tener el cubo.
+    /// </summary>
     public bool TryBuy(Upgrade upgrade)
     {
         double cost = upgrade.Cost;
         if (upgrade.IsMaxed || Money < cost)
+            return false;
+
+        if (upgrade == BucketCapacityUpgrade && !HasBucket)
             return false;
 
         Money -= cost;

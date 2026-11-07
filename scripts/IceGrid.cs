@@ -16,6 +16,9 @@ public partial class IceGrid : Node3D
 
     public const float CubeHeight = 1f;
 
+    /// <summary>Altura de la superficie del hielo: un pelín por encima del agua (y = -0.8).</summary>
+    public const float SurfaceY = -0.75f;
+
     /// <summary>Lado de un cubo de hielo visible. Es el mismo tamaño que los cubos de la mesa del montón.</summary>
     public const float IceCubeSize = 0.5f;
 
@@ -41,9 +44,9 @@ public partial class IceGrid : Node3D
     public static Vector2I WorldToCell(Vector3 point) =>
         new(Mathf.FloorToInt(point.X / CellSize), Mathf.FloorToInt(point.Z / CellSize));
 
-    /// <summary>Centro de la celda a la altura de la superficie (y = 0).</summary>
+    /// <summary>Centro de la celda a la altura de la superficie del hielo.</summary>
     public static Vector3 CellCenter(Vector2I cell) =>
-        new((cell.X + 0.5f) * CellSize, 0f, (cell.Y + 0.5f) * CellSize);
+        new((cell.X + 0.5f) * CellSize, SurfaceY, (cell.Y + 0.5f) * CellSize);
 
     public bool IsOccupied(Vector2I cell) => _occupied.Contains(cell);
 
@@ -97,7 +100,7 @@ public partial class IceGrid : Node3D
 
     private void AddCube(Vector2I cell)
     {
-        // El cubo visible queda apoyado sobre la superficie (y = 0); la colisión ocupa toda la celda.
+        // El cubo visible queda con su cara de arriba en SurfaceY; la colisión ocupa toda la celda.
         var cube = new StaticBody3D { Position = CellCenter(cell) + new Vector3(0f, -CubeHeight / 2f, 0f) };
         cube.AddChild(new MeshInstance3D
         {

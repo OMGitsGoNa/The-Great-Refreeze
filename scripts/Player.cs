@@ -6,10 +6,14 @@ namespace GreatRefreeze;
 /// Jugador en primera persona. Se construye a sí mismo en código (colisión, cabeza,
 /// cámara y rayo de interacción), así que no hace falta montar nada en el editor.
 /// Controles: WASD mover, ratón mirar, Espacio saltar, E interactuar, Esc soltar el ratón.
+/// Si pasas más de 5 segundos bajo el agua, avisa con el evento Drowned.
 /// </summary>
 public partial class Player : CharacterBody3D
 {
     public event System.Action<Station> StationUsed;
+
+    /// <summary>Se dispara cuando llevas demasiado tiempo bajo el agua.</summary>
+    public event System.Action Drowned;
 
     /// <summary>Cámara del jugador: sirve para saber a qué punto del agua apunta.</summary>
     public Camera3D Camera => _camera;
@@ -22,6 +26,12 @@ public partial class Player : CharacterBody3D
 
     /// <summary>La estación que se está mirando ahora mismo (o null).</summary>
     public Station LookedStation { get; private set; }
+
+    /// <summary>Segundos que llevas bajo el agua seguidos.</summary>
+    public double SubmergedTime { get; private set; }
+
+    /// <summary>Segundos que puedes estar bajo el agua antes de congelarte.</summary>
+    public const float DrownSeconds = 5f;
 
     private const float Speed = 5.0f;
     private const float SprintMultiplier = 1.8f;
@@ -100,6 +110,14 @@ public partial class Player : CharacterBody3D
         }
     }
 
+    /// <summary>Lleva al jugador de vuelta a la base y para su movimiento.</summary>
+    public void Respawn()
+    {
+        GlobalPosition = _spawn;
+        Velocity = Vector3.Zero;
+        SubmergedTime = 0;
+    }
+
     public override void _PhysicsProcess(double delta)
     {
         Vector3 velocity = Velocity;
@@ -138,9 +156,18 @@ public partial class Player : CharacterBody3D
 
         // Si te caes al agua, vuelves al muelle.
         if (GlobalPosition.Y < -10f)
+            Respawn();
+
+        // Bajo el agua cuenta el tiempo; si pasa el límite, te congelas.
+        if (inWater && !Frozen)
         {
-            GlobalPosition = _spawn;
-            Velocity = Vector3.Zero;
+            SubmergedTime += delta;
+            if (SubmergedTime >= DrownSeconds)
+                Drowned?.Invoke();
+        }
+        else if (!inWater)
+        {
+            SubmergedTime = 0;
         }
 
         LookedStation = _ray.IsColliding() ? _ray.GetCollider() as Station : null;

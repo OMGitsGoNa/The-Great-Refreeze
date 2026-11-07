@@ -1,16 +1,15 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using Godot;
 
 namespace GreatRefreeze;
 
 /// <summary>
-/// Escena principal del prototipo. Construye el muelle, el agua, la rejilla de hielo,
-/// la cubitera, el montón de hielo, el cubo (mejora), la máquina de mejoras, la máquina de envíos,
-/// los osos, el jugador y el HUD.
-/// Cubitera: mantén E frente a ella 2 segundos por carga. El hielo cae en el montón y se derrite poco a poco.
-/// Montón: E para coger 1 hielo a la mano (o, con el cubo en la mano, llenar el cubo).
+/// Escena principal del prototipo. Construye el muelle, el agua, la rejilla de hielo y los sectores,
+/// la cubitera, la mesa con el montón de hielo, el cubo (mejora), la máquina de mejoras, la máquina de envíos,
+/// el oso polar, el jugador y el HUD.
+/// Cubitera: mantén E frente a ella 2 segundos por carga. El hielo cae en la mesa y se derrite poco a poco.
+/// Mesa: E para coger 1 hielo a la mano (o, con el cubo en la mano, llenar el cubo).
 /// Colocar: apunta al agua y pulsa clic izquierdo (o mantenlo con Manos ágiles).
 /// Uso: escena con un Node3D como raíz y este script asignado.
 /// </summary>
@@ -26,8 +25,8 @@ public partial class Main : Node3D
     private const float ChargeSeconds = 2f;
 
     /// <summary>El muelle ocupa 16 x 16 unidades: con celdas de 0,5 son las celdas de -16 a 15.</summary>
-    private const int DockMinCell = -16;
-    private const int DockMaxCell = 15;
+    private const int DockMinCell = SectorMap.DockMin;
+    private const int DockMaxCell = SectorMap.DockMax;
 
     /// <summary>Mesa del montón: altura de la superficie y medidas de la tabla.</summary>
     private const float TableHeight = 0.9f;
@@ -47,18 +46,29 @@ public partial class Main : Node3D
 
     private readonly GameState _state = new();
     private readonly IceGrid _grid = new();
+    private readonly List<UpgradeRow> _menuRows = new();
     private SectorMap _sectors;
     private CellRect _bearPlatform;
-    private readonly List<UpgradeRow> _menuRows = new();
 
     private Player _player;
     private MeshInstance3D _ghost;
     private StandardMaterial3D _ghostMaterial;
-    private Label _statsLabel;
-    private Label _promptLabel;
-    private Label _winLabel;
     private PanelContainer _menu;
     private ProgressBar _chargeBar;
+    private ColorRect _fade;
+    private bool _drowning;
+
+    // HUD
+    private Label _fishLabel;
+    private Label _moneyLabel;
+    private Label _progressLabel;
+    private Label _sectorLabel;
+    private Label _warnLabel;
+    private Label _promptLabel;
+    private Label _winLabel;
+    private Label _handLabel;
+    private Label _bucketLabel;
+    private PanelContainer _bucketSlot;
 
     private Station _pile;
     private Node3D _pileRoot;
@@ -74,6 +84,10 @@ public partial class Main : Node3D
     private StandardMaterial3D _bucketMaterial;
     private bool _bucketCarried;
 
+    private Station _bear;      // oso polar sentado sobre su plataforma de hielo
+    private Label3D _bearLabel;
+    private bool _bearRescued;
+
     private bool _menuOpen;
     private bool _menuJustOpened; // evita que la misma tecla E que abre el menú lo cierre
 
@@ -83,12 +97,6 @@ public partial class Main : Node3D
 
     private double _placeCooldown;
     private double _chargeTime;   // segundos que llevas manteniendo E en la cubitera
-
-    private Station _bear;      // primer oso polar, sobre el hielo del cubo 50
-    private Label3D _bearLabel;
-    private bool _bearRescued;
-
-    private Label _fishLabel;   // número de peces, junto al icono de pez
 
     private string _message = "";
     private double _messageTimer;
@@ -193,7 +201,7 @@ public partial class Main : Node3D
     {
         if (_state.IceCubes <= 0)
         {
-            ShowMessage("El montón está vacío: haz hielo en la cubitera");
+            ShowMessage("La mesa está vacía: haz hielo en la cubitera");
             return;
         }
 
@@ -217,7 +225,7 @@ public partial class Main : Node3D
         ShowMessage("Has cogido el cubo");
     }
 
-    /// <summary>Carga la cubitera mientras mantienes E. Cada carga completa hace hielo en el montón.</summary>
+    /// <summary>Carga la cubitera mientras mantienes E. Cada carga completa hace hielo en la mesa.</summary>
     private void UpdateCharge(double delta)
     {
         bool eHeld = Input.IsPhysicalKeyPressed(Key.E);
@@ -230,7 +238,7 @@ public partial class Main : Node3D
             {
                 double made = _state.ProduceFromTray();
                 ShowMessage(made > 0
-                    ? $"+{Fmt(made)} hielo al montón"
+                    ? $"+{Fmt(made)} hielo a la mesa"
                     : $"La mesa está llena ({GameState.PileCapacity} máximo)");
                 _chargeTime = 0; // si sigues con E, empieza otra carga enseguida
             }
@@ -259,8 +267,8 @@ public partial class Main : Node3D
         if (!_state.HasIceToPlace(_bucketCarried))
         {
             if (!quiet) ShowMessage(_bucketCarried
-                ? "El cubo está vacío: llénalo desde el montón"
-                : "No llevas hielo: coge uno del montón con E");
+                ? "El cubo está vacío: llénalo desde la mesa"
+                : "No llevas hielo: coge uno de la mesa con E");
             return;
         }
         if (!_grid.Place(_aimCell))
@@ -285,7 +293,6 @@ public partial class Main : Node3D
         {
             ShowMessage($"+{Fmt(_state.FishPerCube)} peces salvados");
         }
-
     }
 
     private void ShowMessage(string text)
@@ -294,7 +301,56 @@ public partial class Main : Node3D
         _messageTimer = 2.0;
     }
 
-    // ---------------------------------------------------------------- osos polares
+    // ---------------------------------------------------------------- congelarse en el agua
+
+    /// <summary>
+    /// Te has pasado 5 s bajo el agua: te congelas, pantalla a negro, pierdes el 10% de peces y dinero
+    /// y apareces en la base.
+    /// </summary>
+    private void OnDrowned()
+    {
+        if (_drowning)
+            return;
+
+        _drowning = true;
+        _player.Frozen = true;
+
+        Tween tween = CreateTween();
+        tween.TweenProperty(_fade, "modulate:a", 1f, 0.8f);
+        tween.TweenCallback(Callable.From(() =>
+        {
+            _state.ApplyDrowningPenalty();
+            _player.Respawn();
+            ShowMessage("Te has congelado en el agua: -10% de peces y dinero");
+        }));
+        tween.TweenInterval(0.3f);
+        tween.TweenProperty(_fade, "modulate:a", 0f, 0.8f);
+        tween.TweenCallback(Callable.From(() =>
+        {
+            _player.Frozen = false;
+            _drowning = false;
+        }));
+    }
+
+    // ---------------------------------------------------------------- oso polar
+
+    /// <summary>Rescata al oso gastando peces. No cuesta dinero.</summary>
+    private void RescueBear()
+    {
+        if (_bearRescued)
+            return;
+
+        if (!_state.TrySpendFish(GameState.BearFishCost))
+        {
+            ShowMessage($"Te faltan {Fmt(GameState.BearFishCost - _state.Fish)} peces para rescatar al oso");
+            return;
+        }
+
+        _bearRescued = true;
+        _bear.Prompt = "Oso polar rescatado";
+        _bearLabel.Text = "Oso polar (rescatado)";
+        ShowMessage("¡Oso polar rescatado!");
+    }
 
     /// <summary>
     /// El oso polar ya existe desde el inicio: sentado y triste sobre una plataforma de 3 x 3 cubos de hielo,
@@ -385,24 +441,6 @@ public partial class Main : Node3D
         AddChild(_bear);
     }
 
-    /// <summary>Rescata al oso gastando peces. No cuesta dinero.</summary>
-    private void RescueBear()
-    {
-        if (_bearRescued)
-            return;
-
-        if (!_state.TrySpendFish(GameState.BearFishCost))
-        {
-            ShowMessage($"Te faltan {Fmt(GameState.BearFishCost - _state.Fish)} peces para rescatar al oso");
-            return;
-        }
-
-        _bearRescued = true;
-        _bear.Prompt = "Oso polar rescatado";
-        _bearLabel.Text = "Oso polar (rescatado)";
-        ShowMessage("¡Oso polar rescatado!");
-    }
-
     // ---------------------------------------------------------------- menú de mejoras
 
     private void OpenMenu()
@@ -448,10 +486,13 @@ public partial class Main : Node3D
         {
             Upgrade u = row.Upgrade;
             bool unlock = u.MaxLevel == 1;
+            bool needsBucket = u == _state.BucketCapacityUpgrade && !_state.HasBucket;
 
             string status = unlock
                 ? (u.IsMaxed ? "desbloqueado" : "bloqueado")
                 : $"nivel {u.Level}";
+            if (needsBucket)
+                status = "requiere el cubo";
             row.Info.Text = $"{u.Name}  ({status})\n{u.Description}";
 
             if (u.IsMaxed)
@@ -462,7 +503,7 @@ public partial class Main : Node3D
             else
             {
                 row.Button.Text = $"Comprar: {FormatMoney(u.Cost)}";
-                row.Button.Disabled = _state.Money < u.Cost;
+                row.Button.Disabled = _state.Money < u.Cost || needsBucket;
             }
         }
     }
@@ -522,7 +563,7 @@ public partial class Main : Node3D
 
     private void BuildWorld()
     {
-        // Agua (solo visual). El hielo que se coloque flota sobre ella.
+        // Agua (solo visual). Cubre todo el mundo de sectores. El hielo flota a nivel del agua.
         AddChild(new MeshInstance3D
         {
             Mesh = new PlaneMesh { Size = new Vector2(1200, 1200) },
@@ -530,7 +571,7 @@ public partial class Main : Node3D
             MaterialOverride = Mat(new Color(0.05f, 0.2f, 0.35f)),
         });
 
-        // Muelle: su cara de arriba queda en y = 0, igual que los cubos de hielo.
+        // Muelle: su cara de arriba queda en y = 0.
         var dock = new StaticBody3D { Position = new Vector3(0, -0.5f, 0) };
         dock.AddChild(new MeshInstance3D
         {
@@ -545,11 +586,12 @@ public partial class Main : Node3D
             for (int z = DockMinCell; z <= DockMaxCell; z++)
                 _grid.MarkOccupied(new Vector2I(x, z));
         AddChild(_grid);
+
         BuildBear();
         _sectors = new SectorMap(new Random(), new[] { _bearPlatform }); // parcelas de peces distintas en cada partida
         AddChild(new SectorLines(_sectors));
 
-        MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en el montón)", "Cubitera",
+        MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en la mesa)", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));
 
         MakeStation(StationKind.Upgrades, "[E] Máquina de mejoras", "Mejoras",
@@ -563,7 +605,7 @@ public partial class Main : Node3D
     }
 
     /// <summary>
-    /// Montón de hielo junto a la cubitera. Los cubos son solo visuales; el collider sirve para mirarlo y pulsar E.
+    /// Mesa con el montón de hielo junto a la cubitera. Los cubos son solo visuales; el collider sirve para mirarla y pulsar E.
     /// </summary>
     private void BuildPile()
     {
@@ -573,7 +615,7 @@ public partial class Main : Node3D
         _pile = new Station
         {
             Kind = StationKind.Pile,
-            Prompt = "[E] Coger hielo del montón",
+            Prompt = "[E] Coger hielo de la mesa",
             Position = new Vector3(PileCenter.X, 0f, PileCenter.Z),
         };
         _pile.AddChild(new CollisionShape3D
@@ -588,7 +630,7 @@ public partial class Main : Node3D
 
         _pileLabel = new Label3D
         {
-            Text = "Montón",
+            Text = "Mesa",
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
             FontSize = 64,
             PixelSize = 0.005f,
@@ -597,7 +639,7 @@ public partial class Main : Node3D
         AddChild(_pile);
     }
 
-    /// <summary>La mesa del montón: tablero con 4 patas. Los hielos se apoyan encima.</summary>
+    /// <summary>La mesa: tablero con 4 patas. Los hielos se apoyan encima.</summary>
     private void AddTable()
     {
         var wood = Mat(new Color(0.55f, 0.4f, 0.25f));
@@ -649,7 +691,10 @@ public partial class Main : Node3D
             }
         }
 
-        _pileLabel.Text = $"Montón: {count} / {GameState.PileCapacity}";
+        // Cuenta atrás del siguiente derretimiento, solo si hay hielo.
+        _pileLabel.Text = count > 0
+            ? $"{count} / {GameState.PileCapacity}  ·  {_state.SecondsUntilMelt:0} s"
+            : $"0 / {GameState.PileCapacity}";
         _pileLabel.Position = new Vector3(0, TableHeight + 0.6f, 0);
     }
 
@@ -703,6 +748,7 @@ public partial class Main : Node3D
         _player = new Player { Position = new Vector3(0, 0.1f, 2) };
         AddChild(_player);
         _player.StationUsed += OnStationUsed;
+        _player.Drowned += OnDrowned;
 
         // Hielo en la mano, visible delante de la cámara cuando no llevas el cubo.
         _handCube = new MeshInstance3D
@@ -728,7 +774,7 @@ public partial class Main : Node3D
         AddChild(_ghost);
     }
 
-    /// <summary>Calcula el punto del agua (y = 0) al que apunta la cámara.</summary>
+    /// <summary>Calcula el punto de la superficie del hielo al que apunta la cámara.</summary>
     private void UpdateAim()
     {
         Camera3D cam = _player.Camera;
@@ -741,7 +787,7 @@ public partial class Main : Node3D
         // Solo hay punto en la superficie si miras hacia abajo.
         if (dir.Y < -0.01f)
         {
-            float t = -origin.Y / dir.Y;
+            float t = (IceGrid.SurfaceY - origin.Y) / dir.Y;
             if (t > 0 && t <= ReachDistance)
             {
                 Vector3 hit = origin + dir * t;
@@ -761,6 +807,202 @@ public partial class Main : Node3D
             _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.VisualSize.Y / 2f, 0f);
             _ghostMaterial.AlbedoColor = new Color(0.3f, 1f, 0.4f, 0.45f);
         }
+    }
+
+    private static StandardMaterial3D Mat(Color color) => new() { AlbedoColor = color };
+
+    // ---------------------------------------------------------------- HUD
+
+    private void BuildHud()
+    {
+        var hud = new CanvasLayer();
+        AddChild(hud);
+
+        // Arriba a la izquierda: peces (con icono) y dinero.
+        var topLeft = new VBoxContainer { Position = new Vector2(16, 14), MouseFilter = Control.MouseFilterEnum.Ignore };
+        hud.AddChild(topLeft);
+
+        var fishRow = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        topLeft.AddChild(fishRow);
+        fishRow.AddChild(new TextureRect
+        {
+            Texture = FishIcon(),
+            CustomMinimumSize = new Vector2(40, 24),
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        });
+        _fishLabel = new Label();
+        StyleLabel(_fishLabel, 24);
+        fishRow.AddChild(_fishLabel);
+
+        _moneyLabel = new Label();
+        StyleLabel(_moneyLabel, 16);
+        topLeft.AddChild(_moneyLabel);
+
+        // Arriba a la derecha: progreso del Ártico.
+        _progressLabel = new Label { HorizontalAlignment = HorizontalAlignment.Right };
+        StyleLabel(_progressLabel, 16);
+        hud.AddChild(_progressLabel);
+        _progressLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight);
+        _progressLabel.OffsetLeft = -360;
+        _progressLabel.OffsetRight = -16;
+        _progressLabel.OffsetTop = 16;
+
+        // Abajo a la izquierda: sector actual.
+        _sectorLabel = new Label();
+        StyleLabel(_sectorLabel, 14);
+        hud.AddChild(_sectorLabel);
+        _sectorLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft);
+        _sectorLabel.OffsetLeft = 16;
+        _sectorLabel.OffsetTop = -40;
+        _sectorLabel.OffsetBottom = -16;
+
+        // Mira en el centro de la pantalla.
+        var crosshair = new Label { Text = "+", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        StyleLabel(crosshair, 28);
+        hud.AddChild(crosshair);
+        crosshair.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+
+        // Barra de carga de la cubitera, bajo el centro de la pantalla.
+        _chargeBar = new ProgressBar
+        {
+            MinValue = 0,
+            MaxValue = 1,
+            ShowPercentage = false,
+            Visible = false,
+            CustomMinimumSize = new Vector2(300, 14),
+        };
+        _chargeBar.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom);
+        _chargeBar.OffsetTop = -150;
+        _chargeBar.OffsetBottom = -136;
+        hud.AddChild(_chargeBar);
+
+        // Aviso de que te ahogas, bajo el centro.
+        _warnLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center };
+        StyleLabel(_warnLabel, 26);
+        hud.AddChild(_warnLabel);
+        _warnLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop);
+        _warnLabel.OffsetTop = 120;
+        _warnLabel.OffsetBottom = 160;
+        _warnLabel.OffsetLeft = -300;
+        _warnLabel.OffsetRight = 300;
+
+        // Inventario abajo al centro: mano y cubo (el cubo aparece al cogerlo).
+        var inventory = new HBoxContainer
+        {
+            Alignment = BoxContainer.AlignmentMode.Center,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        hud.AddChild(inventory);
+        inventory.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom);
+        inventory.GrowHorizontal = Control.GrowDirection.Both;
+        inventory.OffsetLeft = -160;
+        inventory.OffsetRight = 160;
+        inventory.OffsetTop = -76;
+        inventory.OffsetBottom = -28;
+
+        inventory.AddChild(MakeSlot(out _handLabel));
+        _bucketSlot = MakeSlot(out _bucketLabel);
+        _bucketSlot.Visible = false;
+        inventory.AddChild(_bucketSlot);
+
+        // Avisos: lo que puedes hacer con lo que miras y mensajes.
+        _promptLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom };
+        StyleLabel(_promptLabel, 20);
+        hud.AddChild(_promptLabel);
+        _promptLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _promptLabel.OffsetBottom = -100;
+
+        _winLabel = new Label
+        {
+            Text = "¡Has recongelado el Ártico!",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visible = false,
+        };
+        StyleLabel(_winLabel, 48);
+        hud.AddChild(_winLabel);
+        _winLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _winLabel.OffsetBottom = -200;
+
+        BuildMenu(hud);
+
+        // Fundido a negro al congelarse. Va el último para tapar todo.
+        _fade = new ColorRect
+        {
+            Color = Colors.Black,
+            Modulate = new Color(1f, 1f, 1f, 0f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        hud.AddChild(_fade);
+        _fade.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+    }
+
+    /// <summary>Una casilla del inventario: recuadro oscuro con un texto.</summary>
+    private static PanelContainer MakeSlot(out Label label)
+    {
+        label = new Label { HorizontalAlignment = HorizontalAlignment.Center };
+        StyleLabel(label, 18);
+
+        var slot = new PanelContainer { CustomMinimumSize = new Vector2(140, 48), MouseFilter = Control.MouseFilterEnum.Ignore };
+        slot.AddChild(label);
+        return slot;
+    }
+
+    private static void StyleLabel(Label label, int fontSize)
+    {
+        label.MouseFilter = Control.MouseFilterEnum.Ignore; // que el HUD no se coma los clics
+        label.AddThemeFontSizeOverride("font_size", fontSize);
+        label.AddThemeColorOverride("font_outline_color", Colors.Black);
+        label.AddThemeConstantOverride("outline_size", 6);
+    }
+
+    private void UpdateHud(double delta)
+    {
+        RefreshPile();
+
+        // El cubo se ve azul cuando tiene hielo. El hielo de la mano se ve si no llevas el cubo.
+        _bucketMaterial.AlbedoColor = _state.BucketIce >= 1 ? BucketFullColor : BucketEmptyColor;
+        _handCube.Visible = _state.HandIce > 0 && !_bucketCarried;
+
+        _fishLabel.Text = Fmt(_state.Fish);
+        _moneyLabel.Text = FormatMoney(_state.Money);
+        _progressLabel.Text = $"Ártico {_state.Progress * 100:0.0}%";
+
+        _handLabel.Text = $"Mano  {_state.HandIce} / {GameState.HandCapacity}";
+        _bucketSlot.Visible = _bucketCarried;
+        _bucketLabel.Text = $"Cubo  {_state.BucketIce} / {_state.BucketMax}";
+
+        Sector here = _sectors.At(IceGrid.WorldToCell(_player.GlobalPosition));
+        _sectorLabel.Text = here == null
+            ? ""
+            : $"Anillo {here.Ring}  ·  {here.Filled} / {here.Free}"
+              + (here.IsFish ? "  ·  parcela de peces" : "")
+              + (here.Completed ? "  ✓" : "");
+
+        _warnLabel.Text = _player.SubmergedTime > 0
+            ? $"¡Sal del agua! {Math.Max(0, Player.DrownSeconds - _player.SubmergedTime):0.0} s"
+            : "";
+
+        _messageTimer -= delta;
+        var prompt = new System.Text.StringBuilder();
+        if (!_menuOpen)
+        {
+            if (_player.LookedStation != null)
+                prompt.AppendLine(_player.LookedStation.Prompt);
+            else if (_aimValid && _state.HasIceToPlace(_bucketCarried))
+                prompt.AppendLine(_state.HasAgileHands
+                    ? "[mantén clic izquierdo] Colocar hielo"
+                    : "[clic izquierdo] Colocar hielo");
+        }
+        if (_messageTimer > 0)
+            prompt.AppendLine(_message);
+        _promptLabel.Text = prompt.ToString().TrimEnd();
+
+        _winLabel.Visible = _state.Won;
+
+        if (_menuOpen)
+            RefreshMenu();
     }
 
     /// <summary>Icono de pez dibujado en código, sin imágenes externas.</summary>
@@ -788,147 +1030,6 @@ public partial class Main : Node3D
                 image.SetPixel(x, y, eye);
 
         return ImageTexture.CreateFromImage(image);
-    }
-
-    private static StandardMaterial3D Mat(Color color) => new() { AlbedoColor = color };
-
-    // ---------------------------------------------------------------- HUD
-
-    private void BuildHud()
-    {
-        var hud = new CanvasLayer();
-        AddChild(hud);
-
-        // Arriba, el número de peces con su icono; debajo, el resto de estadísticas.
-        var statsBox = new VBoxContainer { Position = new Vector2(16, 16), MouseFilter = Control.MouseFilterEnum.Ignore };
-        hud.AddChild(statsBox);
-
-        var fishRow = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
-        statsBox.AddChild(fishRow);
-        fishRow.AddChild(new TextureRect
-        {
-            Texture = FishIcon(),
-            CustomMinimumSize = new Vector2(44, 28),
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-        });
-        _fishLabel = new Label();
-        StyleLabel(_fishLabel, 26);
-        fishRow.AddChild(_fishLabel);
-
-        _statsLabel = new Label();
-        StyleLabel(_statsLabel, 20);
-        statsBox.AddChild(_statsLabel);
-
-        // Mira en el centro de la pantalla.
-        var crosshair = new Label { Text = "+", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        StyleLabel(crosshair, 28);
-        hud.AddChild(crosshair);
-        crosshair.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-
-        // Barra de carga de la cubitera, bajo el centro de la pantalla.
-        _chargeBar = new ProgressBar
-        {
-            MinValue = 0,
-            MaxValue = 1,
-            ShowPercentage = false,
-            Visible = false,
-            CustomMinimumSize = new Vector2(300, 18),
-        };
-        _chargeBar.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom);
-        _chargeBar.OffsetTop = -150;
-        _chargeBar.OffsetBottom = -132;
-        hud.AddChild(_chargeBar);
-
-        // Avisos: lo que puedes hacer con lo que miras y mensajes.
-        _promptLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom };
-        StyleLabel(_promptLabel, 22);
-        hud.AddChild(_promptLabel);
-        _promptLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        _promptLabel.OffsetBottom = -80;
-
-        _winLabel = new Label
-        {
-            Text = "¡Has recongelado el Ártico!",
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Visible = false,
-        };
-        StyleLabel(_winLabel, 48);
-        hud.AddChild(_winLabel);
-        _winLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        _winLabel.OffsetBottom = -200;
-
-        BuildMenu(hud);
-    }
-
-    private static void StyleLabel(Label label, int fontSize)
-    {
-        label.MouseFilter = Control.MouseFilterEnum.Ignore; // que el HUD no se coma los clics
-        label.AddThemeFontSizeOverride("font_size", fontSize);
-        label.AddThemeColorOverride("font_outline_color", Colors.Black);
-        label.AddThemeConstantOverride("outline_size", 6);
-    }
-
-    private void UpdateHud(double delta)
-    {
-        RefreshPile();
-
-        // El cubo se ve azul cuando tiene hielo. El hielo de la mano se ve si no llevas el cubo.
-        _bucketMaterial.AlbedoColor = _state.BucketIce >= 1 ? BucketFullColor : BucketEmptyColor;
-        _handCube.Visible = _state.HandIce > 0 && !_bucketCarried;
-
-        var text = new StringBuilder();
-        if (_state.IceCubes > 0)
-            text.AppendLine($"Montón: {_state.IceCubes} / {GameState.PileCapacity}     se derrite 1 en {_state.SecondsUntilMelt:0.0} s");
-        else
-            text.AppendLine($"Montón: 0 / {GameState.PileCapacity}");
-
-        if (_state.HasBucket)
-            text.AppendLine($"Cubo: {_state.BucketIce} / {GameState.BucketCapacity}"
-                            + (_bucketCarried ? " (en la mano)" : " (en el muelle)"));
-        else
-            text.AppendLine($"En la mano: {_state.HandIce} / {GameState.HandCapacity}");
-
-        _fishLabel.Text = Fmt(_state.Fish);
-        text.AppendLine($"Dinero: {FormatMoney(_state.Money)}");
-        text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)     Osos polares: {(_bearRescued ? 1 : 0)} / 1");
-
-        // Progreso del sector donde estás.
-        Sector here = _sectors.At(IceGrid.WorldToCell(_player.GlobalPosition));
-        if (here == null)
-        {
-            text.Append("Sector: muelle");
-        }
-        else
-        {
-            text.Append($"Anillo {here.Ring}: {here.Filled} / {here.Free} cubos");
-            if (here.IsFish)
-                text.Append("  [parcela de peces]");
-            if (here.Completed)
-                text.Append("  ✓");
-        }
-        _statsLabel.Text = text.ToString();
-
-        _messageTimer -= delta;
-        var prompt = new StringBuilder();
-        if (!_menuOpen)
-        {
-            if (_player.LookedStation != null)
-                prompt.AppendLine(_player.LookedStation.Prompt);
-            else if (_aimValid && _state.HasIceToPlace(_bucketCarried))
-                prompt.AppendLine(_state.HasAgileHands
-                    ? "[mantén clic izquierdo] Colocar hielo"
-                    : "[clic izquierdo] Colocar hielo");
-        }
-        if (_messageTimer > 0)
-            prompt.AppendLine(_message);
-        _promptLabel.Text = prompt.ToString().TrimEnd();
-
-        _winLabel.Visible = _state.Won;
-
-        if (_menuOpen)
-            RefreshMenu();
     }
 
     /// <summary>Formatea números grandes: 1234 -> 1234, 25000 -> 25K, 2500000 -> 2,5M.</summary>
