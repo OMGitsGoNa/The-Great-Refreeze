@@ -31,15 +31,16 @@ public sealed class Upgrade
 
 /// <summary>
 /// Toda la lógica del juego, sin nada de Godot: así es fácil de probar y de equilibrar.
-/// Flujo: colocar cubos salva peces; las empresas pagan dinero por cada pez enviado;
-/// el dinero compra mejoras. Los números son provisionales.
+/// Flujo: la cubitera hace hielo que va al montón; el montón se derrite poco a poco;
+/// con hielo en la mano (o en el cubo) se coloca y salva peces; las empresas pagan dinero
+/// por cada pez enviado; el dinero compra mejoras. Los números son provisionales.
 /// </summary>
 public sealed class GameState
 {
     /// <summary>Cubos que hay que colocar en total para recongelar el Ártico (provisional).</summary>
     public const int GoalCubes = 1000;
 
-    /// <summary>Hielo por segundo que produce cada congelador.</summary>
+    /// <summary>Hielo por segundo que produce cada congelador (va al montón).</summary>
     public const double FreezerRate = 0.5;
 
     /// <summary>Dinero que pagan las empresas por cada pez enviado.</summary>
@@ -51,14 +52,40 @@ public sealed class GameState
     /// <summary>Distancia entre osos polares, en cubos colocados. Los osos aún no hacen nada.</summary>
     public const int BearSpacingCubes = 50;
 
-    public double Ice { get; private set; }      // hielo que llevas encima (1 de hielo = 1 cubo)
+    /// <summary>Capacidad del cubo (mejora). El hielo del cubo no se derrite.</summary>
+    public const int BucketCapacity = 10;
+
+    /// <summary>Hielo que se puede llevar en la mano sin cubo.</summary>
+    public const int HandCapacity = 1;
+
+    /// <summary>Segundos entre derretimientos de un hielo del montón.</summary>
+    public const double MeltSeconds = 15;
+
+    /// <summary>Máximo de hielos que caben sobre la mesa a la vez.</summary>
+    public const int PileCapacity = 10;
+
+    /// <summary>Montón de hielo junto a la cubitera (puede tener fracción por los congeladores).</summary>
+    public double Ice { get; private set; }
+
+    /// <summary>Hielo en la mano sin cubo (0 o 1).</summary>
+    public int HandIce { get; private set; }
+
+    /// <summary>Hielo dentro del cubo (solo si tienes la mejora Cubo).</summary>
+    public int BucketIce { get; private set; }
+
     public double Fish { get; private set; }     // peces salvados, pendientes de enviar
     public double Money { get; private set; }    // dinero para comprar mejoras
     public int PlacedCubes { get; private set; }
 
+    /// <summary>Se dispara cada vez que un hielo del montón se derrite.</summary>
+    public event Action Melted;
+
+    private double _meltTimer;
+
     // Precios divididos entre 10 respecto a la versión anterior (ahora en dinero).
+    public Upgrade Bucket { get; } = new("Cubo", "Lleva el hielo en la mano (hasta 10, no se derrite)", 5, 1.0, 1);
     public Upgrade Tray { get; } = new("Cubitera grande", "+1 hielo por carga", 1, 1.6);
-    public Upgrade Freezer { get; } = new("Congelador", "+0,5 hielo/s", 4, 1.35);
+    public Upgrade Freezer { get; } = new("Congelador", "+0,5 hielo/s al montón", 4, 1.35);
     public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 3, 2.0);
     public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén el clic para colocar hielo sin parar", 10, 1.0, 1);
     public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 100, 1.0, 1);
@@ -67,9 +94,10 @@ public sealed class GameState
 
     public GameState()
     {
-        Upgrades = new[] { Tray, Freezer, Shovel, AgileHands, Sprint };
+        Upgrades = new[] { Bucket, Tray, Freezer, Shovel, AgileHands, Sprint };
     }
 
+    public bool HasBucket => Bucket.Level > 0;
     public bool HasAgileHands => AgileHands.Level > 0;
     public bool HasSprint => Sprint.Level > 0;
 
@@ -79,51 +107,104 @@ public sealed class GameState
     /// <summary>Un cubo colocado salva 1 pez, más la pala.</summary>
     public double FishPerCube => 1 + 0.5 * Shovel.Level;
 
-    /// <summary>Cubos enteros que puedes colocar ahora mismo.</summary>
+    /// <summary>Cubos enteros en el montón.</summary>
     public int IceCubes => (int)Math.Floor(Ice);
+
+    /// <summary>Segundos que faltan para que se derrita el siguiente hielo del montón.</summary>
+    public double SecondsUntilMelt => MeltSeconds - _meltTimer;
 
     /// <summary>Progreso entre 0 y 1.</summary>
     public double Progress => Math.Min(1.0, (double)PlacedCubes / GoalCubes);
     public bool Won => PlacedCubes >= GoalCubes;
 
-    /// <summary>Capacidad máxima del cubo que recoge el hielo de la cubitera.</summary>
-    public const int BucketCapacity = 10;
-
-    /// <summary>Hielo que hay ahora mismo en el cubo.</summary>
-    public double BucketIce { get; private set; }
-
     public bool IsBucketFull => BucketIce >= BucketCapacity;
 
-    /// <summary>Acción de la cubitera al completar la carga: deja hielo en el cubo. Devuelve cuánto ha entrado.</summary>
-    public double UseTray()
+    /// <summary>Producción de los congeladores y derretimiento del montón.</summary>
+    public void Tick(double deltaSeconds)
     {
-        double added = Math.Min(IcePerUse, BucketCapacity - BucketIce);
-        BucketIce += added;
+        Ice = Math.Min(PileCapacity, Ice + IcePerSecond * deltaSeconds);
+
+        if (IceCubes <= 0)
+        {
+            _meltTimer = 0;
+            return;
+        }
+
+        _meltTimer += deltaSeconds;
+        if (_meltTimer >= MeltSeconds)
+        {
+            _meltTimer = 0;
+            Ice -= 1;
+            Melted?.Invoke();
+        }
+    }
+
+    /// <summary>La cubitera hace hielo y lo deja en el montón. Devuelve cuánto ha hecho.</summary>
+    public double ProduceFromTray()
+    {
+        double added = Math.Min(IcePerUse, PileCapacity - Ice);
+        if (added <= 0)
+            return 0;
+
+        Ice += added;
         return added;
     }
 
+    /// <summary>
+    /// Coge hielo del montón. Sin cubo: 1 a la mano (si la mano está libre).
+    /// Con el cubo en la mano: todo lo que quepa en el cubo. Devuelve cuántos cubos ha cogido.
+    /// </summary>
+    public int TakeFromPile(bool bucketInHand)
+    {
+        if (IceCubes <= 0)
+            return 0;
 
-    /// <summary>Producción automática de los congeladores.</summary>
-    public void Tick(double deltaSeconds) => Ice += IcePerSecond * deltaSeconds;
+        if (bucketInHand)
+        {
+            int moved = Math.Min(IceCubes, BucketCapacity - BucketIce);
+            if (moved <= 0)
+                return 0;
+
+            BucketIce += moved;
+            Ice -= moved;
+            return moved;
+        }
+
+        if (HandIce >= HandCapacity)
+            return 0;
+
+        HandIce = HandCapacity;
+        Ice -= 1;
+        return 1;
+    }
+
+    /// <summary>Al coger el cubo, el hielo de la mano pasa a él (si cabe).</summary>
+    public void PutHandIceInBucket()
+    {
+        int moved = Math.Min(HandIce, BucketCapacity - BucketIce);
+        if (moved <= 0)
+            return;
+
+        BucketIce += moved;
+        HandIce -= moved;
+    }
 
     /// <summary>
-    /// Hay hielo para colocar: el del cubo si lo llevas en la mano, o el suelto del inventario.
+    /// Hay hielo para colocar: el del cubo si lo llevas en la mano, o el de la mano si no.
     /// </summary>
-    public bool HasIceFor(bool bucketInHand) =>
-        (bucketInHand && BucketIce >= 1) || Ice >= 1;
+    public bool HasIceToPlace(bool bucketInHand) =>
+        bucketInHand ? BucketIce >= 1 : HandIce >= 1;
 
-    /// <summary>
-    /// Gasta 1 de hielo (primero el del cubo si lo llevas en la mano), cuenta un cubo y salva peces.
-    /// Devuelve false si no hay hielo.
-    /// </summary>
+    /// <summary>Gasta 1 de hielo (del cubo o de la mano), cuenta un cubo y salva peces.</summary>
     public bool TryPlaceCube(bool bucketInHand)
     {
-        if (bucketInHand && BucketIce >= 1)
-            BucketIce -= 1;
-        else if (Ice >= 1)
-            Ice -= 1;
-        else
+        if (!HasIceToPlace(bucketInHand))
             return false;
+
+        if (bucketInHand)
+            BucketIce -= 1;
+        else
+            HandIce -= 1;
 
         PlacedCubes++;
         Fish += FishPerCube;

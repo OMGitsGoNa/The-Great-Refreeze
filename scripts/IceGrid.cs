@@ -19,11 +19,11 @@ public partial class IceGrid : Node3D
     /// <summary>Lado de un sector en unidades del mundo (20 con los valores actuales).</summary>
     public const float SectorUnits = SectorCells * CellSize;
 
-    /// <summary>Separación visual entre cubos para que se distingan. La colisión no tiene hueco.</summary>
-    private const float Gap = 0.08f;
+    /// <summary>Lado de un cubo de hielo visible. Es el mismo tamaño que los cubos de la mesa del montón.</summary>
+    public const float IceCubeSize = 0.5f;
 
     /// <summary>Tamaño visual de un cubo (también lo usa la sombra de previsualización).</summary>
-    public static readonly Vector3 VisualSize = new(CellSize - Gap, CubeHeight, CellSize - Gap);
+    public static readonly Vector3 VisualSize = new(IceCubeSize, IceCubeSize, IceCubeSize);
 
     private static readonly Vector2I[] Neighbors = { Vector2I.Right, Vector2I.Left, Vector2I.Up, Vector2I.Down };
 
@@ -114,7 +114,13 @@ public partial class IceGrid : Node3D
 
         // La cara de arriba queda en y = 0, a la misma altura que el muelle.
         var cube = new StaticBody3D { Position = CellCenter(cell) + new Vector3(0f, -CubeHeight / 2f, 0f) };
-        cube.AddChild(new MeshInstance3D { Mesh = _mesh, MaterialOverride = _material });
+        // El cubo visible queda apoyado sobre la superficie (y = 0); la colisión ocupa toda la celda.
+        cube.AddChild(new MeshInstance3D
+        {
+            Mesh = _mesh,
+            MaterialOverride = _material,
+            Position = new Vector3(0f, CubeHeight / 2f - IceCubeSize / 2f, 0f),
+        });
         cube.AddChild(new CollisionShape3D { Shape = _shape });
         AddChild(cube);
         return true;

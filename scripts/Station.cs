@@ -4,10 +4,11 @@ namespace GreatRefreeze;
 
 public enum StationKind
 {
-    Tray,     // la cubitera: aquí se hace hielo a mano
+    Tray,     // la cubitera: mantén E para hacer hielo, que cae en el montón
+    Pile,     // el montón de hielo junto a la cubitera: E para coger hielo
     Upgrades, // máquina de mejoras
     Sell,     // envío de peces a empresas
-    Bucket,   // cubo donde cae el hielo de la cubitera
+    Bucket,   // cubo (mejora) que está en el muelle hasta que lo coges
 }
 
 /// <summary>

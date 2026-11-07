@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using Godot;
@@ -6,10 +7,11 @@ namespace GreatRefreeze;
 
 /// <summary>
 /// Escena principal del prototipo. Construye el muelle, el agua, la rejilla de hielo,
-/// la cubitera, el cubo, la máquina de mejoras, la máquina de envíos, los osos, el jugador y el HUD.
-/// Colocar hielo: apunta al agua y pulsa clic izquierdo (o mantenlo con Manos ágiles).
-/// Cubo: E sobre él para cogerlo y llevarlo en la mano. Mientras lo lleves, el hielo sale de ahí.
-/// Cubitera: con el cubo en la mano, mantén E frente a ella 2 segundos por carga.
+/// la cubitera, el montón de hielo, el cubo (mejora), la máquina de mejoras, la máquina de envíos,
+/// los osos, el jugador y el HUD.
+/// Cubitera: mantén E frente a ella 2 segundos por carga. El hielo cae en el montón y se derrite poco a poco.
+/// Montón: E para coger 1 hielo a la mano (o, con el cubo en la mano, llenar el cubo).
+/// Colocar: apunta al agua y pulsa clic izquierdo (o mantenlo con Manos ágiles).
 /// Uso: escena con un Node3D como raíz y este script asignado.
 /// </summary>
 public partial class Main : Node3D
@@ -27,11 +29,19 @@ public partial class Main : Node3D
     private const int DockMinCell = -4;
     private const int DockMaxCell = 3;
 
+    /// <summary>Mesa del montón: altura de la superficie y medidas de la tabla.</summary>
+    private const float TableHeight = 0.9f;
+    private const float TableWidth = 3f;
+    private const float TableDepth = 1.2f;
+
+    private static readonly Vector3 PileCenter = new(-3f, 0f, -1.8f);   // delante de la cubitera
+    private static readonly Vector3 PileSize = new(TableWidth, TableHeight, TableDepth);
     private static readonly Vector3 BucketSize = new(0.7f, 0.6f, 0.7f);
     private static readonly Vector3 BucketRestPosition = new(-1.2f, 0.3f, -4f);  // sobre el muelle
     private static readonly Vector3 BucketHoldPosition = new(0.35f, -0.4f, -0.7f); // delante, a la derecha de la cámara
     private static readonly Color BucketEmptyColor = new(0.95f, 0.95f, 0.97f);
     private static readonly Color BucketFullColor = new(0.2f, 0.5f, 1f);
+    private static readonly Color IceColor = new(0.8f, 0.93f, 1f);
 
     private sealed record UpgradeRow(Upgrade Upgrade, Label Info, Button Button);
 
@@ -47,6 +57,15 @@ public partial class Main : Node3D
     private Label _winLabel;
     private PanelContainer _menu;
     private ProgressBar _chargeBar;
+
+    private Station _pile;
+    private Node3D _pileRoot;
+    private Label3D _pileLabel;
+    private BoxMesh _pileCubeMesh;
+    private StandardMaterial3D _pileMaterial;
+    private int _pileShown = -1;
+
+    private MeshInstance3D _handCube;   // hielo que llevas en la mano (sin cubo)
 
     private Station _bucket;
     private CollisionShape3D _bucketShape;
@@ -75,6 +94,8 @@ public partial class Main : Node3D
         BuildPlayer();
         BuildGhost();
         BuildHud();
+
+        _state.Melted += () => ShowMessage("Un hielo del montón se ha derretido");
     }
 
     public override void _Process(double delta)
@@ -133,6 +154,10 @@ public partial class Main : Node3D
     {
         switch (station.Kind)
         {
+            case StationKind.Pile:
+                TakeFromPile();
+                break;
+
             case StationKind.Bucket:
                 PickUpBucket();
                 break;
@@ -152,46 +177,56 @@ public partial class Main : Node3D
         }
     }
 
+    /// <summary>Coge hielo del montón: 1 a la mano, o llena el cubo si lo llevas.</summary>
+    private void TakeFromPile()
+    {
+        if (_state.IceCubes <= 0)
+        {
+            ShowMessage("El montón está vacío: haz hielo en la cubitera");
+            return;
+        }
+
+        int moved = _state.TakeFromPile(_bucketCarried);
+        if (moved > 0)
+            ShowMessage(_bucketCarried ? $"+{moved} hielo al cubo" : "Has cogido un hielo");
+        else
+            ShowMessage(_bucketCarried ? "El cubo está lleno" : "Ya llevas un hielo en la mano");
+    }
+
     private void PickUpBucket()
     {
-        if (_bucketCarried)
+        if (_bucketCarried || !_state.HasBucket)
             return;
 
         _bucketCarried = true;
         _bucketShape.Disabled = true; // en la mano no bloquea ni se mira como estación
+        _state.PutHandIceInBucket();
         _bucket.Reparent(_player.Camera, false);
         _bucket.Position = BucketHoldPosition;
         ShowMessage("Has cogido el cubo");
     }
 
-    /// <summary>Carga la cubitera mientras mantienes E con el cubo en la mano.</summary>
+    /// <summary>Carga la cubitera mientras mantienes E. Cada carga completa hace hielo en el montón.</summary>
     private void UpdateCharge(double delta)
     {
         bool eHeld = Input.IsPhysicalKeyPressed(Key.E);
         bool onTray = _player.LookedStation?.Kind == StationKind.Tray;
 
-        if (eHeld && onTray && !_bucketCarried)
-        {
-            ShowMessage("Coge el cubo primero (E sobre él)");
-        }
-        else if (eHeld && onTray && _state.IsBucketFull)
-        {
-            ShowMessage("El cubo está lleno: úsalo colocando hielo");
-        }
-
-        if (eHeld && onTray && _bucketCarried && !_state.IsBucketFull)
+        if (eHeld && onTray)
         {
             _chargeTime += delta;
             if (_chargeTime >= ChargeSeconds)
             {
-                double added = _state.UseTray();
-                ShowMessage($"+{Fmt(added)} de hielo al cubo");
+                double made = _state.ProduceFromTray();
+                ShowMessage(made > 0
+                    ? $"+{Fmt(made)} hielo al montón"
+                    : $"La mesa está llena ({GameState.PileCapacity} máximo)");
                 _chargeTime = 0; // si sigues con E, empieza otra carga enseguida
             }
         }
         else
         {
-            _chargeTime = 0; // soltar E cancela lo que llevabas cargado
+            _chargeTime = 0; // soltar E cancela la carga a medias
         }
 
         _chargeBar.Visible = _chargeTime > 0;
@@ -210,11 +245,11 @@ public partial class Main : Node3D
             if (!quiet) ShowMessage("No puedes colocar hielo aquí: pégalo a lo que ya está colocado");
             return;
         }
-        if (!_state.HasIceFor(_bucketCarried))
+        if (!_state.HasIceToPlace(_bucketCarried))
         {
             if (!quiet) ShowMessage(_bucketCarried
-                ? "El cubo está vacío: llénalo en la cubitera"
-                : "No tienes hielo: coge el cubo y llénalo en la cubitera");
+                ? "El cubo está vacío: llénalo desde el montón"
+                : "No llevas hielo: coge uno del montón con E");
             return;
         }
         if (!_grid.Place(_aimCell))
@@ -295,9 +330,20 @@ public partial class Main : Node3D
 
     private void BuyUpgrade(Upgrade upgrade)
     {
-        ShowMessage(_state.TryBuy(upgrade)
-            ? $"Comprado: {upgrade.Name}"
-            : $"Te faltan {FormatMoney(upgrade.Cost - _state.Money)} para {upgrade.Name}");
+        bool bought = _state.TryBuy(upgrade);
+        if (bought && upgrade == _state.Bucket)
+        {
+            // El cubo aparece en el muelle; hay que ir a cogerlo con E.
+            _bucket.Visible = true;
+            _bucketShape.Disabled = false;
+            ShowMessage("Comprado: Cubo. Está en el muelle, cógelo con E");
+        }
+        else
+        {
+            ShowMessage(bought
+                ? $"Comprado: {upgrade.Name}"
+                : $"Te faltan {FormatMoney(upgrade.Cost - _state.Money)} para {upgrade.Name}");
+        }
         RefreshMenu();
     }
 
@@ -406,7 +452,7 @@ public partial class Main : Node3D
         AddChild(_grid);
         AddChild(new SectorLines());
 
-        MakeStation(StationKind.Tray, "[mantén E] Cargar hielo en el cubo", "Cubitera",
+        MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en el montón)", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));
 
         MakeStation(StationKind.Upgrades, "[E] Máquina de mejoras", "Mejoras",
@@ -415,20 +461,117 @@ public partial class Main : Node3D
         MakeStation(StationKind.Sell, "[E] Enviar peces a empresas", "Empresas",
             new Vector3(-6, 0, 4), new Vector3(1.6f, 1.4f, 1.6f), new Color(0.2f, 0.7f, 0.6f));
 
+        BuildPile();
         BuildBucket();
     }
 
-    /// <summary>El cubo empieza en el muelle. Al cogerlo pasa a la mano y deja de tener colisión.</summary>
+    /// <summary>
+    /// Montón de hielo junto a la cubitera. Los cubos son solo visuales; el collider sirve para mirarlo y pulsar E.
+    /// </summary>
+    private void BuildPile()
+    {
+        _pileMaterial = Mat(IceColor);
+        _pileCubeMesh = new BoxMesh { Size = IceGrid.VisualSize };
+
+        _pile = new Station
+        {
+            Kind = StationKind.Pile,
+            Prompt = "[E] Coger hielo del montón",
+            Position = new Vector3(PileCenter.X, 0f, PileCenter.Z),
+        };
+        _pile.AddChild(new CollisionShape3D
+        {
+            Shape = new BoxShape3D { Size = PileSize },
+            Position = new Vector3(0, PileSize.Y / 2f, 0),
+        });
+        AddTable();
+
+        _pileRoot = new Node3D();
+        _pile.AddChild(_pileRoot);
+
+        _pileLabel = new Label3D
+        {
+            Text = "Montón",
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            FontSize = 64,
+            PixelSize = 0.005f,
+        };
+        _pile.AddChild(_pileLabel);
+        AddChild(_pile);
+    }
+
+    /// <summary>La mesa del montón: tablero con 4 patas. Los hielos se apoyan encima.</summary>
+    private void AddTable()
+    {
+        var wood = Mat(new Color(0.55f, 0.4f, 0.25f));
+        const float topThickness = 0.1f;
+
+        _pile.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(TableWidth, topThickness, TableDepth) },
+            MaterialOverride = wood,
+            Position = new Vector3(0, TableHeight - topThickness / 2f, 0),
+        });
+
+        float legHeight = TableHeight - topThickness;
+        const float legSize = 0.1f;
+        foreach (float sx in new[] { -1f, 1f })
+            foreach (float sz in new[] { -1f, 1f })
+                _pile.AddChild(new MeshInstance3D
+                {
+                    Mesh = new BoxMesh { Size = new Vector3(legSize, legHeight, legSize) },
+                    MaterialOverride = wood,
+                    Position = new Vector3(sx * (TableWidth / 2f - legSize), legHeight / 2f,
+                                           sz * (TableDepth / 2f - legSize)),
+                });
+    }
+
+    /// <summary>Redibuja los hielos de la mesa solo cuando cambia su número (máximo 10, en 2 filas de 5).</summary>
+    private void RefreshPile()
+    {
+        int count = _state.IceCubes;
+        if (count != _pileShown)
+        {
+            _pileShown = count;
+
+            foreach (Node child in _pileRoot.GetChildren())
+                child.QueueFree();
+
+            for (int i = 0; i < count; i++)
+            {
+                int col = i % 5;
+                int row = i / 5;
+                _pileRoot.AddChild(new MeshInstance3D
+                {
+                    Mesh = _pileCubeMesh,
+                    MaterialOverride = _pileMaterial,
+                    Position = new Vector3((col - 2f) * 0.55f,
+                                           TableHeight + IceGrid.IceCubeSize / 2f,
+                                           (row - 0.5f) * 0.55f),
+                });
+            }
+        }
+
+        _pileLabel.Text = $"Montón: {count} / {GameState.PileCapacity}";
+        _pileLabel.Position = new Vector3(0, TableHeight + 0.6f, 0);
+    }
+
+    /// <summary>El cubo empieza oculto. Aparece en el muelle al comprarlo; al cogerlo pasa a la mano.</summary>
     private void BuildBucket()
     {
         _bucketMaterial = Mat(BucketEmptyColor);
-        _bucketShape = new CollisionShape3D { Shape = new BoxShape3D { Size = BucketSize } };
+        _bucketShape = new CollisionShape3D
+        {
+            Shape = new BoxShape3D { Size = BucketSize },
+            Disabled = true,
+        };
 
         _bucket = new Station
         {
             Kind = StationKind.Bucket,
             Prompt = "[E] Coger el cubo",
             Position = BucketRestPosition,
+            Visible = false,
         };
         _bucket.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = BucketSize }, MaterialOverride = _bucketMaterial });
         _bucket.AddChild(_bucketShape);
@@ -463,6 +606,16 @@ public partial class Main : Node3D
         _player = new Player { Position = new Vector3(0, 0.1f, 2) };
         AddChild(_player);
         _player.StationUsed += OnStationUsed;
+
+        // Hielo en la mano, visible delante de la cámara cuando no llevas el cubo.
+        _handCube = new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = IceGrid.VisualSize },
+            MaterialOverride = Mat(IceColor),
+            Position = BucketHoldPosition,
+            Visible = false,
+        };
+        _player.Camera.AddChild(_handCube);
     }
 
     /// <summary>Sombra que muestra dónde caería el cubo. Solo aparece donde se puede colocar.</summary>
@@ -508,7 +661,7 @@ public partial class Main : Node3D
         _ghost.Visible = _aimValid;
         if (_aimValid)
         {
-            _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.CubeHeight / 2f, 0f);
+            _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.VisualSize.Y / 2f, 0f);
             _ghostMaterial.AlbedoColor = new Color(0.3f, 1f, 0.4f, 0.45f);
         }
     }
@@ -578,12 +731,24 @@ public partial class Main : Node3D
 
     private void UpdateHud(double delta)
     {
-        // El cubo se ve azul cuando tiene hielo.
+        RefreshPile();
+
+        // El cubo se ve azul cuando tiene hielo. El hielo de la mano se ve si no llevas el cubo.
         _bucketMaterial.AlbedoColor = _state.BucketIce >= 1 ? BucketFullColor : BucketEmptyColor;
+        _handCube.Visible = _state.HandIce > 0 && !_bucketCarried;
 
         var text = new StringBuilder();
-        text.AppendLine($"Hielo: {_state.IceCubes}     Cubo: {_state.BucketIce:0} / {GameState.BucketCapacity}"
-                        + (_bucketCarried ? " (en la mano)" : " (en el muelle)"));
+        if (_state.IceCubes > 0)
+            text.AppendLine($"Montón: {_state.IceCubes} / {GameState.PileCapacity}     se derrite 1 en {_state.SecondsUntilMelt:0.0} s");
+        else
+            text.AppendLine($"Montón: 0 / {GameState.PileCapacity}");
+
+        if (_state.HasBucket)
+            text.AppendLine($"Cubo: {_state.BucketIce} / {GameState.BucketCapacity}"
+                            + (_bucketCarried ? " (en la mano)" : " (en el muelle)"));
+        else
+            text.AppendLine($"En la mano: {_state.HandIce} / {GameState.HandCapacity}");
+
         text.AppendLine($"Peces salvados: {Fmt(_state.Fish)}     Dinero: {FormatMoney(_state.Money)}");
         text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)     Osos polares: {_bearCount}");
 
@@ -602,7 +767,7 @@ public partial class Main : Node3D
         {
             if (_player.LookedStation != null)
                 prompt.AppendLine(_player.LookedStation.Prompt);
-            else if (_aimValid && _state.HasIceFor(_bucketCarried))
+            else if (_aimValid && _state.HasIceToPlace(_bucketCarried))
                 prompt.AppendLine(_state.HasAgileHands
                     ? "[mantén clic izquierdo] Colocar hielo"
                     : "[clic izquierdo] Colocar hielo");
