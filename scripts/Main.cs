@@ -18,8 +18,8 @@ public partial class Main : Node3D
     /// <summary>Distancia máxima a la que se puede colocar hielo.</summary>
     private const float ReachDistance = 8f;
 
-    /// <summary>Tiempo entre cubos cuando mantienes el clic (con Manos ágiles).</summary>
-    private const float HoldInterval = 0.12f;
+    /// <summary>Tiempo entre cubos cuando mantienes el clic (con Manos ágiles): unos 20 por segundo.</summary>
+    private const float HoldInterval = 0.05f;
 
     /// <summary>Segundos que hay que mantener E en la cubitera para una carga.</summary>
     private const float ChargeSeconds = 2f;
@@ -794,9 +794,8 @@ public partial class Main : Node3D
                 _aimCell = IceGrid.WorldToCell(hit);
                 _aimHit = true;
 
-                // No se puede colocar hielo donde estás de pie.
-                _aimValid = _grid.CanPlace(_aimCell)
-                            && _aimCell != IceGrid.WorldToCell(_player.GlobalPosition);
+                // Si la celda exacta no sirve, usa la vecina más cercana al punto que miras.
+                _aimValid = CanPlaceAt(_aimCell) || FindPlaceableCell(hit);
             }
         }
 
@@ -807,6 +806,52 @@ public partial class Main : Node3D
             _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.VisualSize.Y / 2f, 0f);
             _ghostMaterial.AlbedoColor = new Color(0.3f, 1f, 0.4f, 0.45f);
         }
+    }
+
+    /// <summary>
+    /// Se puede colocar hielo en la celda: está libre, toca hielo o muelle, y no está justo bajo tus pies.
+    /// </summary>
+    private bool CanPlaceAt(Vector2I cell)
+    {
+        if (!_grid.CanPlace(cell))
+            return false;
+
+        Vector3 center = IceGrid.CellCenter(cell);
+        Vector3 feet = _player.GlobalPosition;
+        return new Vector2(center.X - feet.X, center.Z - feet.Z).Length() > 0.45f;
+    }
+
+    /// <summary>
+    /// Busca entre las 8 celdas que rodean a la que miras la más cercana al punto mirado que se pueda colocar.
+    /// Así, al correr, el hielo sale aunque el cursor caiga en una celda que no sirve.
+    /// </summary>
+    private bool FindPlaceableCell(Vector3 hit)
+    {
+        Vector2I origin = _aimCell;
+        bool found = false;
+        float best = float.MaxValue;
+
+        for (int dx = -1; dx <= 1; dx++)
+            for (int dz = -1; dz <= 1; dz++)
+            {
+                if (dx == 0 && dz == 0)
+                    continue;
+
+                var cell = new Vector2I(origin.X + dx, origin.Y + dz);
+                if (!CanPlaceAt(cell))
+                    continue;
+
+                Vector3 c = IceGrid.CellCenter(cell);
+                float d = new Vector2(c.X - hit.X, c.Z - hit.Z).LengthSquared();
+                if (d < best)
+                {
+                    best = d;
+                    _aimCell = cell;
+                    found = true;
+                }
+            }
+
+        return found;
     }
 
     private static StandardMaterial3D Mat(Color color) => new() { AlbedoColor = color };
