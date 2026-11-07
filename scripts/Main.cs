@@ -25,9 +25,9 @@ public partial class Main : Node3D
     /// <summary>Segundos que hay que mantener E en la cubitera para una carga.</summary>
     private const float ChargeSeconds = 2f;
 
-    /// <summary>El muelle ocupa las celdas de -4 a 3 en X y en Z (16 x 16 unidades).</summary>
-    private const int DockMinCell = -4;
-    private const int DockMaxCell = 3;
+    /// <summary>El muelle ocupa 16 x 16 unidades: con celdas de 0,5 son las celdas de -16 a 15.</summary>
+    private const int DockMinCell = -16;
+    private const int DockMaxCell = 15;
 
     /// <summary>Mesa del montón: altura de la superficie y medidas de la tabla.</summary>
     private const float TableHeight = 0.9f;

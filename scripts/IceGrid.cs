@@ -10,13 +10,13 @@ namespace GreatRefreeze;
 /// </summary>
 public partial class IceGrid : Node3D
 {
-    public const float CellSize = 2f;
+    public const float CellSize = 0.5f; // igual que el lado de un cubo de hielo
     public const float CubeHeight = 1f;
 
     /// <summary>Un sector son 10 x 10 celdas.</summary>
     public const int SectorCells = 10;
 
-    /// <summary>Lado de un sector en unidades del mundo (20 con los valores actuales).</summary>
+    /// <summary>Lado de un sector en unidades del mundo (5 con los valores actuales).</summary>
     public const float SectorUnits = SectorCells * CellSize;
 
     /// <summary>Lado de un cubo de hielo visible. Es el mismo tamaño que los cubos de la mesa del montón.</summary>
