@@ -4,20 +4,17 @@ using Godot;
 namespace GreatRefreeze;
 
 /// <summary>
-/// La rejilla de celdas cuadradas sobre el agua. Guarda qué celdas están ocupadas (muelle o hielo)
+/// Rejilla de celdas cuadradas sobre el agua. Guarda qué celdas están ocupadas (muelle, plataforma o hielo)
 /// y crea los cubos de hielo, que son sólidos: el jugador puede caminar por encima.
 /// La celda (x, z) cubre el mundo desde (x * CellSize, z * CellSize) hasta (x + 1, z + 1) * CellSize.
+/// Los sectores (anillos alrededor del muelle) están en SectorMap.
 /// </summary>
 public partial class IceGrid : Node3D
 {
-    public const float CellSize = 0.5f; // igual que el lado de un cubo de hielo
+    /// <summary>Lado de una celda: igual que un cubo de hielo.</summary>
+    public const float CellSize = 0.5f;
+
     public const float CubeHeight = 1f;
-
-    /// <summary>Un sector son 10 x 10 celdas.</summary>
-    public const int SectorCells = 10;
-
-    /// <summary>Lado de un sector en unidades del mundo (5 con los valores actuales).</summary>
-    public const float SectorUnits = SectorCells * CellSize;
 
     /// <summary>Lado de un cubo de hielo visible. Es el mismo tamaño que los cubos de la mesa del montón.</summary>
     public const float IceCubeSize = 0.5f;
@@ -28,7 +25,7 @@ public partial class IceGrid : Node3D
     private static readonly Vector2I[] Neighbors = { Vector2I.Right, Vector2I.Left, Vector2I.Up, Vector2I.Down };
 
     private readonly HashSet<Vector2I> _occupied = new();
-    private readonly HashSet<Vector2I> _dock = new(); // celdas del muelle: no se pueden convertir en hielo
+    private readonly HashSet<Vector2I> _dock = new(); // celdas fijas (muelle, plataformas): no cuentan como cubos
 
     private BoxMesh _mesh;
     private BoxShape3D _shape;
@@ -44,10 +41,6 @@ public partial class IceGrid : Node3D
     public static Vector2I WorldToCell(Vector3 point) =>
         new(Mathf.FloorToInt(point.X / CellSize), Mathf.FloorToInt(point.Z / CellSize));
 
-    /// <summary>Sector al que pertenece una celda. Usa redondeo hacia abajo: funciona en negativo.</summary>
-    public static Vector2I CellToSector(Vector2I cell) =>
-        new(Mathf.FloorToInt((float)cell.X / SectorCells), Mathf.FloorToInt((float)cell.Y / SectorCells));
-
     /// <summary>Centro de la celda a la altura de la superficie (y = 0).</summary>
     public static Vector3 CellCenter(Vector2I cell) =>
         new((cell.X + 0.5f) * CellSize, 0f, (cell.Y + 0.5f) * CellSize);
@@ -61,38 +54,14 @@ public partial class IceGrid : Node3D
         _dock.Add(cell);
     }
 
-    /// <summary>Cubos de hielo colocados en un sector (sin contar el muelle).</summary>
-    public int CountCubesIn(Vector2I sector)
-    {
-        int count = 0;
-        for (int x = 0; x < SectorCells; x++)
-            for (int z = 0; z < SectorCells; z++)
-            {
-                var cell = new Vector2I(sector.X * SectorCells + x, sector.Y * SectorCells + z);
-                if (_occupied.Contains(cell) && !_dock.Contains(cell)) count++;
-            }
-        return count;
-    }
-
-    /// <summary>Celdas de un sector donde se puede poner hielo (todas menos las del muelle).</summary>
-    public int CountFreeCellsIn(Vector2I sector)
-    {
-        int count = 0;
-        for (int x = 0; x < SectorCells; x++)
-            for (int z = 0; z < SectorCells; z++)
-            {
-                var cell = new Vector2I(sector.X * SectorCells + x, sector.Y * SectorCells + z);
-                if (!_dock.Contains(cell)) count++;
-            }
-        return count;
-    }
-
-    /// <summary>Un sector está completo cuando tiene cubos en todas sus celdas libres.</summary>
-    public bool IsSectorFull(Vector2I sector) => CountCubesIn(sector) >= CountFreeCellsIn(sector);
-
-    /// <summary>Se puede colocar si la celda está libre y toca (en cruz) una celda ocupada.</summary>
+    /// <summary>
+    /// Se puede colocar si está dentro del mundo, la celda está libre y toca (en cruz) una celda ocupada.
+    /// </summary>
     public bool CanPlace(Vector2I cell)
     {
+        if (!SectorMap.World.Contains(cell))
+            return false;
+
         if (_occupied.Contains(cell))
             return false;
 
@@ -112,16 +81,7 @@ public partial class IceGrid : Node3D
     {
         _occupied.Add(cell);
         _dock.Add(cell);
-
-        var fixedCube = new StaticBody3D { Position = CellCenter(cell) + new Vector3(0f, -CubeHeight / 2f, 0f) };
-        fixedCube.AddChild(new MeshInstance3D
-        {
-            Mesh = _mesh,
-            MaterialOverride = _material,
-            Position = new Vector3(0f, CubeHeight / 2f - IceCubeSize / 2f, 0f),
-        });
-        fixedCube.AddChild(new CollisionShape3D { Shape = _shape });
-        AddChild(fixedCube);
+        AddCube(cell);
     }
 
     /// <summary>Crea un cubo de hielo en la celda. Devuelve false si no se puede colocar ahí.</summary>
@@ -131,10 +91,14 @@ public partial class IceGrid : Node3D
             return false;
 
         _occupied.Add(cell);
+        AddCube(cell);
+        return true;
+    }
 
-        // La cara de arriba queda en y = 0, a la misma altura que el muelle.
-        var cube = new StaticBody3D { Position = CellCenter(cell) + new Vector3(0f, -CubeHeight / 2f, 0f) };
+    private void AddCube(Vector2I cell)
+    {
         // El cubo visible queda apoyado sobre la superficie (y = 0); la colisión ocupa toda la celda.
+        var cube = new StaticBody3D { Position = CellCenter(cell) + new Vector3(0f, -CubeHeight / 2f, 0f) };
         cube.AddChild(new MeshInstance3D
         {
             Mesh = _mesh,
@@ -143,6 +107,5 @@ public partial class IceGrid : Node3D
         });
         cube.AddChild(new CollisionShape3D { Shape = _shape });
         AddChild(cube);
-        return true;
     }
 }

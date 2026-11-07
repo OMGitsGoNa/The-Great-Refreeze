@@ -47,6 +47,8 @@ public partial class Main : Node3D
 
     private readonly GameState _state = new();
     private readonly IceGrid _grid = new();
+    private SectorMap _sectors;
+    private CellRect _bearPlatform;
     private readonly List<UpgradeRow> _menuRows = new();
 
     private Player _player;
@@ -267,13 +269,17 @@ public partial class Main : Node3D
             return;
         }
 
-        Vector2I sector = IceGrid.CellToSector(_aimCell);
         _state.TryPlaceCube(_bucketCarried);
 
-        if (_grid.IsSectorFull(sector))
+        // Al completar un sector: bono que crece con el anillo. Las parcelas de peces dan además 1 pez por celda.
+        Sector done = _sectors.RecordPlaced(_aimCell);
+        if (done != null)
         {
-            _state.AddFish(GameState.SectorBonus);
-            ShowMessage($"¡Sector completado! +{Fmt(GameState.SectorBonus)} peces de bono");
+            double bonus = _state.SectorBonusFor(done.Ring) + (done.IsFish ? done.Free : 0);
+            _state.AddFish(bonus);
+            ShowMessage(done.IsFish
+                ? $"¡Parcela de peces completada! +{Fmt(bonus)} peces"
+                : $"¡Sector completado! +{Fmt(bonus)} peces de bono");
         }
         else if (!quiet)
         {
@@ -301,6 +307,8 @@ public partial class Main : Node3D
         int minX = DockMaxCell + GameState.BearDistanceCubes;   // primera columna: a 50 del muelle
         int centerX = minX + platformSize / 2;
         int minZ = centerZ - platformSize / 2;
+
+        _bearPlatform = new CellRect(minX, minZ, minX + platformSize - 1, minZ + platformSize - 1);
 
         for (int x = minX; x < minX + platformSize; x++)
             for (int z = minZ; z < minZ + platformSize; z++)
@@ -517,7 +525,7 @@ public partial class Main : Node3D
         // Agua (solo visual). El hielo que se coloque flota sobre ella.
         AddChild(new MeshInstance3D
         {
-            Mesh = new PlaneMesh { Size = new Vector2(600, 600) },
+            Mesh = new PlaneMesh { Size = new Vector2(1200, 1200) },
             Position = new Vector3(0, -0.8f, 0),
             MaterialOverride = Mat(new Color(0.05f, 0.2f, 0.35f)),
         });
@@ -537,8 +545,9 @@ public partial class Main : Node3D
             for (int z = DockMinCell; z <= DockMaxCell; z++)
                 _grid.MarkOccupied(new Vector2I(x, z));
         AddChild(_grid);
-        AddChild(new SectorLines());
         BuildBear();
+        _sectors = new SectorMap(new Random(), new[] { _bearPlatform }); // parcelas de peces distintas en cada partida
+        AddChild(new SectorLines(_sectors));
 
         MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en el montón)", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));
@@ -886,12 +895,19 @@ public partial class Main : Node3D
         text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)     Osos polares: {(_bearRescued ? 1 : 0)} / 1");
 
         // Progreso del sector donde estás.
-        Vector2I sector = IceGrid.CellToSector(IceGrid.WorldToCell(_player.GlobalPosition));
-        int filled = _grid.CountCubesIn(sector);
-        int free = _grid.CountFreeCellsIn(sector);
-        text.Append($"Sector ({sector.X}, {sector.Y}): {filled} / {free} cubos");
-        if (free > 0 && filled == free)
-            text.Append("  ✓");
+        Sector here = _sectors.At(IceGrid.WorldToCell(_player.GlobalPosition));
+        if (here == null)
+        {
+            text.Append("Sector: muelle");
+        }
+        else
+        {
+            text.Append($"Anillo {here.Ring}: {here.Filled} / {here.Free} cubos");
+            if (here.IsFish)
+                text.Append("  [parcela de peces]");
+            if (here.Completed)
+                text.Append("  ✓");
+        }
         _statsLabel.Text = text.ToString();
 
         _messageTimer -= delta;

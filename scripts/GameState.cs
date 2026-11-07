@@ -44,7 +44,7 @@ public sealed class GameState
     public const double FreezerRate = 0.5;
 
     /// <summary>Dinero que pagan las empresas por cada pez enviado.</summary>
-    public const double FishPrice = 0.1;
+    public const double FishPrice = 0.05;
 
     /// <summary>Peces extra al completar un sector.</summary>
     public const double SectorBonus = 10;
@@ -216,6 +216,9 @@ public sealed class GameState
 
     /// <summary>Añade dinero directamente (lo usa el modo dev y no el juego normal).</summary>
     public void AddMoney(double amount) => Money += amount;
+
+    /// <summary>Peces que da completar un sector del anillo indicado: el bono base multiplicado por el anillo.</summary>
+    public double SectorBonusFor(int ring) => SectorBonus * ring;
 
     /// <summary>Gasta peces si hay suficientes. Devuelve false si no alcanzan.</summary>
     public bool TrySpendFish(double amount)

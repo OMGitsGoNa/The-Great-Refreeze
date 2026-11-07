@@ -1,54 +1,64 @@
+using System;
 using Godot;
 
 namespace GreatRefreeze;
 
 /// <summary>
-/// Líneas blancas sobre el agua que marcan los bordes de los sectores.
-/// Solo son visuales: la lógica de sectores está en IceGrid.
+/// Líneas sobre el agua que marcan el contorno de cada sector: blancas los normales,
+/// amarillas las parcelas de peces. Solo son visuales; la lógica está en SectorMap.
 /// </summary>
 public partial class SectorLines : Node3D
 {
-    /// <summary>Cuántos sectores hay a cada lado del origen.</summary>
-    private const int Range = 6;
-
-    private const float LineWidth = 0.08f;
-    private const float LineHeight = 0.02f;
-
     // Justo por encima del agua (y = -0.8) para que se vean sin mezclarse con ella.
     private const float LineY = -0.78f;
 
+    private readonly SectorMap _map;
+
+    public SectorLines(SectorMap map)
+    {
+        _map = map;
+    }
+
     public override void _Ready()
     {
-        float half = Range * IceGrid.SectorUnits;
-        float length = 2f * half;
+        AddChild(BuildOutlines(s => !s.IsFish, new Color(0.95f, 0.98f, 1f)));
+        AddChild(BuildOutlines(s => s.IsFish, new Color(1f, 0.85f, 0.1f)));
+    }
 
+    private MeshInstance3D BuildOutlines(Func<Sector, bool> pick, Color color)
+    {
+        var mesh = new ImmediateMesh();
         var material = new StandardMaterial3D
         {
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color(0.85f, 0.95f, 1f),
+            AlbedoColor = color,
         };
 
-        // Una malla para las líneas en Z y otra para las líneas en X; se reutilizan.
-        var alongZ = new BoxMesh { Size = new Vector3(LineWidth, LineHeight, length) };
-        var alongX = new BoxMesh { Size = new Vector3(length, LineHeight, LineWidth) };
-
-        for (int k = -Range; k <= Range; k++)
+        mesh.SurfaceBegin(Mesh.PrimitiveType.Lines, material);
+        foreach (Sector sector in _map.Sectors)
         {
-            float boundary = k * IceGrid.SectorUnits;
+            if (!pick(sector))
+                continue;
 
-            AddChild(new MeshInstance3D
-            {
-                Mesh = alongZ,
-                MaterialOverride = material,
-                Position = new Vector3(boundary, LineY, 0f),
-            });
+            CellRect r = sector.Rect;
+            float x0 = r.X0 * IceGrid.CellSize;
+            float x1 = (r.X1 + 1) * IceGrid.CellSize;
+            float z0 = r.Z0 * IceGrid.CellSize;
+            float z1 = (r.Z1 + 1) * IceGrid.CellSize;
 
-            AddChild(new MeshInstance3D
-            {
-                Mesh = alongX,
-                MaterialOverride = material,
-                Position = new Vector3(0f, LineY, boundary),
-            });
+            AddSegment(mesh, x0, z0, x1, z0);
+            AddSegment(mesh, x1, z0, x1, z1);
+            AddSegment(mesh, x1, z1, x0, z1);
+            AddSegment(mesh, x0, z1, x0, z0);
         }
+        mesh.SurfaceEnd();
+
+        return new MeshInstance3D { Mesh = mesh };
+    }
+
+    private static void AddSegment(ImmediateMesh mesh, float ax, float az, float bx, float bz)
+    {
+        mesh.SurfaceAddVertex(new Vector3(ax, LineY, az));
+        mesh.SurfaceAddVertex(new Vector3(bx, LineY, bz));
     }
 }
