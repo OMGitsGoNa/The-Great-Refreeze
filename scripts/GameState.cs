@@ -38,7 +38,7 @@ public sealed class Upgrade
 public sealed class GameState
 {
     /// <summary>Cubos que hay que colocar en total para recongelar el Ártico (provisional).</summary>
-    public const int GoalCubes = 1000;
+    public const int GoalCubes = 1_000_000;
 
     /// <summary>Hielo por segundo que produce cada congelador (va al montón).</summary>
     public const double FreezerRate = 0.5;
@@ -49,8 +49,11 @@ public sealed class GameState
     /// <summary>Peces extra al completar un sector.</summary>
     public const double SectorBonus = 10;
 
-    /// <summary>Distancia entre osos polares, en cubos colocados. Los osos aún no hacen nada.</summary>
-    public const int BearSpacingCubes = 50;
+    /// <summary>Distancia, en cubos, desde el muelle a la que aparece el primer oso polar.</summary>
+    public const int BearDistanceCubes = 50;
+
+    /// <summary>Peces que cuesta rescatar al oso polar (se pagan con peces, no con dinero).</summary>
+    public const double BearFishCost = 100;
 
     /// <summary>Capacidad del cubo (mejora). El hielo del cubo no se derrite.</summary>
     public const int BucketCapacity = 10;
@@ -208,6 +211,19 @@ public sealed class GameState
 
         PlacedCubes++;
         Fish += FishPerCube;
+        return true;
+    }
+
+    /// <summary>Añade dinero directamente (lo usa el modo dev y no el juego normal).</summary>
+    public void AddMoney(double amount) => Money += amount;
+
+    /// <summary>Gasta peces si hay suficientes. Devuelve false si no alcanzan.</summary>
+    public bool TrySpendFish(double amount)
+    {
+        if (Fish < amount)
+            return false;
+
+        Fish -= amount;
         return true;
     }
 

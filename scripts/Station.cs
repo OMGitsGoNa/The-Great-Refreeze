@@ -9,6 +9,7 @@ public enum StationKind
     Upgrades, // máquina de mejoras
     Sell,     // envío de peces a empresas
     Bucket,   // cubo (mejora) que está en el muelle hasta que lo coges
+    Bear,     // oso polar: se rescata pagando peces
 }
 
 /// <summary>

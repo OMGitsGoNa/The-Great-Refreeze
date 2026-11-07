@@ -82,7 +82,11 @@ public partial class Main : Node3D
     private double _placeCooldown;
     private double _chargeTime;   // segundos que llevas manteniendo E en la cubitera
 
-    private int _bearCount;
+    private Station _bear;      // primer oso polar, sobre el hielo del cubo 50
+    private Label3D _bearLabel;
+    private bool _bearRescued;
+
+    private Label _fishLabel;   // número de peces, junto al icono de pez
 
     private string _message = "";
     private double _messageTimer;
@@ -94,6 +98,7 @@ public partial class Main : Node3D
         BuildPlayer();
         BuildGhost();
         BuildHud();
+        DevMode.Apply(_state); // MODO DEV: quitar esta línea al eliminar DevMode.cs
 
         _state.Melted += () => ShowMessage("Un hielo del montón se ha derretido");
     }
@@ -160,6 +165,10 @@ public partial class Main : Node3D
 
             case StationKind.Bucket:
                 PickUpBucket();
+                break;
+
+            case StationKind.Bear:
+                RescueBear();
                 break;
 
             case StationKind.Upgrades:
@@ -271,9 +280,24 @@ public partial class Main : Node3D
             ShowMessage($"+{Fmt(_state.FishPerCube)} peces salvados");
         }
 
-        // Cada 50 cubos colocados aparece un oso polar sobre el último cubo.
-        if (_state.PlacedCubes % GameState.BearSpacingCubes == 0)
+        // El primer oso polar aparece sobre el cubo que llega a 50 cubos de distancia del muelle.
+        if (_bear == null && DockDistance(_aimCell) >= GameState.BearDistanceCubes)
             SpawnBear(_aimCell);
+    }
+
+    /// <summary>
+    /// Distancia en cubos desde el borde del muelle (0 si la celda está dentro del muelle).
+    /// Cuenta en línea recta y en diagonal como una sola distancia.
+    /// </summary>
+    private static int DockDistance(Vector2I cell)
+    {
+        int dx = cell.X > DockMaxCell ? cell.X - DockMaxCell
+               : cell.X < DockMinCell ? DockMinCell - cell.X
+               : 0;
+        int dz = cell.Y > DockMaxCell ? cell.Y - DockMaxCell
+               : cell.Y < DockMinCell ? DockMinCell - cell.Y
+               : 0;
+        return Math.Max(dx, dz);
     }
 
     private void ShowMessage(string text)
@@ -284,28 +308,56 @@ public partial class Main : Node3D
 
     // ---------------------------------------------------------------- osos polares
 
-    /// <summary>Crea un oso sobre el cubo indicado. Por ahora solo está ahí: su función aún no está definida.</summary>
+    /// <summary>Aparece el primer oso polar sobre el hielo indicado. Se rescata pagando peces.</summary>
     private void SpawnBear(Vector2I cell)
     {
-        _bearCount++;
-
-        var bear = new Node3D { Position = IceGrid.CellCenter(cell) + new Vector3(0f, 0.5f, 0f) };
-        bear.AddChild(new MeshInstance3D
+        _bear = new Station
         {
-            Mesh = new CapsuleMesh { Radius = 0.4f, Height = 1.2f },
+            Kind = StationKind.Bear,
+            Prompt = $"[E] Rescatar oso polar ({Fmt(GameState.BearFishCost)} peces)",
+            Position = IceGrid.CellCenter(cell),
+        };
+        _bear.AddChild(new MeshInstance3D
+        {
+            Mesh = new CapsuleMesh { Radius = 0.3f, Height = 0.8f },
             MaterialOverride = Mat(new Color(0.95f, 0.96f, 0.98f)),
+            Position = new Vector3(0, 0.4f, 0),
         });
-        bear.AddChild(new Label3D
+        _bear.AddChild(new CollisionShape3D
+        {
+            Shape = new BoxShape3D { Size = new Vector3(0.6f, 0.8f, 0.6f) },
+            Position = new Vector3(0, 0.4f, 0),
+        });
+        _bearLabel = new Label3D
         {
             Text = "Oso polar",
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
             FontSize = 64,
             PixelSize = 0.005f,
             Position = new Vector3(0, 1.1f, 0),
-        });
-        AddChild(bear);
+        };
+        _bear.AddChild(_bearLabel);
+        AddChild(_bear);
 
-        ShowMessage("¡Ha aparecido un oso polar!");
+        ShowMessage($"¡Ha aparecido un oso polar! Rescátalo con {Fmt(GameState.BearFishCost)} peces");
+    }
+
+    /// <summary>Rescata al oso gastando peces. No cuesta dinero.</summary>
+    private void RescueBear()
+    {
+        if (_bearRescued)
+            return;
+
+        if (!_state.TrySpendFish(GameState.BearFishCost))
+        {
+            ShowMessage($"Te faltan {Fmt(GameState.BearFishCost - _state.Fish)} peces para rescatar al oso");
+            return;
+        }
+
+        _bearRescued = true;
+        _bear.Prompt = "Oso polar rescatado";
+        _bearLabel.Text = "Oso polar (rescatado)";
+        ShowMessage("¡Oso polar rescatado!");
     }
 
     // ---------------------------------------------------------------- menú de mejoras
@@ -666,6 +718,33 @@ public partial class Main : Node3D
         }
     }
 
+    /// <summary>Icono de pez dibujado en código, sin imágenes externas.</summary>
+    private static Texture2D FishIcon()
+    {
+        const int w = 36;
+        const int h = 22;
+        var image = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
+        var body = new Color(0.4f, 0.72f, 1f);
+        var eye = new Color(0.05f, 0.05f, 0.1f);
+
+        for (int x = 0; x < w; x++)
+            for (int y = 0; y < h; y++)
+            {
+                float dx = (x - 14f) / 13f;
+                float dy = (y - 11f) / 8f;
+                bool inBody = dx * dx + dy * dy <= 1f;
+                bool inTail = x >= 26 && Mathf.Abs(y - 11f) <= (x - 25) * 0.9f;
+                if (inBody || inTail)
+                    image.SetPixel(x, y, body);
+            }
+
+        for (int x = 9; x <= 10; x++)
+            for (int y = 9; y <= 10; y++)
+                image.SetPixel(x, y, eye);
+
+        return ImageTexture.CreateFromImage(image);
+    }
+
     private static StandardMaterial3D Mat(Color color) => new() { AlbedoColor = color };
 
     // ---------------------------------------------------------------- HUD
@@ -675,9 +754,26 @@ public partial class Main : Node3D
         var hud = new CanvasLayer();
         AddChild(hud);
 
-        _statsLabel = new Label { Position = new Vector2(16, 16) };
+        // Arriba, el número de peces con su icono; debajo, el resto de estadísticas.
+        var statsBox = new VBoxContainer { Position = new Vector2(16, 16), MouseFilter = Control.MouseFilterEnum.Ignore };
+        hud.AddChild(statsBox);
+
+        var fishRow = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        statsBox.AddChild(fishRow);
+        fishRow.AddChild(new TextureRect
+        {
+            Texture = FishIcon(),
+            CustomMinimumSize = new Vector2(44, 28),
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        });
+        _fishLabel = new Label();
+        StyleLabel(_fishLabel, 26);
+        fishRow.AddChild(_fishLabel);
+
+        _statsLabel = new Label();
         StyleLabel(_statsLabel, 20);
-        hud.AddChild(_statsLabel);
+        statsBox.AddChild(_statsLabel);
 
         // Mira en el centro de la pantalla.
         var crosshair = new Label { Text = "+", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -749,8 +845,9 @@ public partial class Main : Node3D
         else
             text.AppendLine($"En la mano: {_state.HandIce} / {GameState.HandCapacity}");
 
-        text.AppendLine($"Peces salvados: {Fmt(_state.Fish)}     Dinero: {FormatMoney(_state.Money)}");
-        text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)     Osos polares: {_bearCount}");
+        _fishLabel.Text = Fmt(_state.Fish);
+        text.AppendLine($"Dinero: {FormatMoney(_state.Money)}");
+        text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)     Osos polares: {(_bearRescued ? 1 : 0)} / 1");
 
         // Progreso del sector donde estás.
         Vector2I sector = IceGrid.CellToSector(IceGrid.WorldToCell(_player.GlobalPosition));
