@@ -1,45 +1,67 @@
+using System.Text;
 using Godot;
 
 namespace GreatRefreeze;
 
 /// <summary>
-/// Escena principal del prototipo. Construye el mundo en código (muelle, agua, hielo,
-/// estaciones, jugador y HUD) y conecta el jugador con la lógica de GameState.
+/// Escena principal del prototipo. Construye el muelle, el agua, la rejilla de hielo,
+/// la cubitera, el jugador y el HUD.
+/// Colocar hielo: apunta al agua (se ve una sombra) y pulsa clic izquierdo.
 /// Uso: escena con un Node3D como raíz y este script asignado.
 /// </summary>
 public partial class Main : Node3D
 {
+    /// <summary>Distancia máxima a la que se puede colocar hielo.</summary>
+    private const float ReachDistance = 8f;
+
+    /// <summary>El muelle ocupa las celdas de -4 a 3 en X y en Z (16 x 16 unidades).</summary>
+    private const int DockMinCell = -4;
+    private const int DockMaxCell = 3;
+
+    private static readonly Key[] UpgradeKeys = { Key.Key1, Key.Key2, Key.Key3 };
+
     private readonly GameState _state = new();
+    private readonly IceGrid _grid = new();
 
     private Player _player;
-    private MeshInstance3D _iceSheet;
+    private MeshInstance3D _ghost;
+    private StandardMaterial3D _ghostMaterial;
     private Label _statsLabel;
     private Label _promptLabel;
     private Label _winLabel;
 
+    private bool _aimHit;     // el punto que miras está a alcance
+    private bool _aimValid;   // se puede colocar hielo ahí
+    private Vector2I _aimCell;
+
     private string _message = "";
     private double _messageTimer;
-
-    // Teclas 1, 2 y 3 compran las mejoras en el mismo orden que GameState.Upgrades.
-    private static readonly Key[] UpgradeKeys = { Key.Key1, Key.Key2, Key.Key3 };
 
     public override void _Ready()
     {
         BuildEnvironment();
         BuildWorld();
         BuildPlayer();
+        BuildGhost();
         BuildHud();
     }
 
     public override void _Process(double delta)
     {
         _state.Tick(delta);
-        UpdateIceSheet();
+        UpdateAim();
         UpdateHud(delta);
     }
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (@event is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left
+            && Input.MouseMode == Input.MouseModeEnum.Captured)
+        {
+            TryPlaceAtAim();
+            return;
+        }
+
         if (@event is not InputEventKey key || !key.Pressed || key.Echo)
             return;
 
@@ -50,7 +72,7 @@ public partial class Main : Node3D
             Upgrade upgrade = _state.Upgrades[i];
             ShowMessage(_state.TryBuy(upgrade)
                 ? $"Comprado: {upgrade.Name} (nivel {upgrade.Level})"
-                : $"Te faltan {Fmt(upgrade.Cost - _state.Money)} $ para {upgrade.Name}");
+                : $"Te faltan {Fmt(upgrade.Cost - _state.Points)} puntos para {upgrade.Name}");
         }
     }
 
@@ -58,17 +80,47 @@ public partial class Main : Node3D
 
     private void OnStationUsed(Station station)
     {
-        switch (station.Kind)
+        if (station.Kind == StationKind.Tray)
         {
-            case StationKind.Tray:
-                _state.UseTray();
-                ShowMessage($"+{Fmt(_state.IcePerUse)} de hielo");
-                break;
+            _state.UseTray();
+            ShowMessage($"+{Fmt(_state.IcePerUse)} de hielo");
+        }
+    }
 
-            case StationKind.Deposit:
-                double placed = _state.Deposit();
-                ShowMessage(placed > 0 ? $"Has colocado {Fmt(placed)} de hielo" : "No llevas hielo");
-                break;
+    private void TryPlaceAtAim()
+    {
+        if (!_aimHit)
+        {
+            ShowMessage("Apunta al agua para colocar hielo");
+            return;
+        }
+        if (!_aimValid)
+        {
+            ShowMessage("No puedes colocar hielo aquí: pégalo a lo que ya está colocado");
+            return;
+        }
+        if (_state.IceCubes < 1)
+        {
+            ShowMessage("No tienes hielo: usa la cubitera (E)");
+            return;
+        }
+        if (!_grid.Place(_aimCell))
+        {
+            ShowMessage("No puedes colocar hielo aquí");
+            return;
+        }
+
+        Vector2I sector = IceGrid.CellToSector(_aimCell);
+        _state.TryPlaceCube();
+
+        if (_grid.IsSectorFull(sector))
+        {
+            _state.AddBonus(GameState.SectorBonus);
+            ShowMessage($"¡Sector completado! +{Fmt(GameState.SectorBonus)} puntos de bono");
+        }
+        else
+        {
+            ShowMessage($"+{Fmt(_state.PointsPerCube)} puntos");
         }
     }
 
@@ -76,6 +128,42 @@ public partial class Main : Node3D
     {
         _message = text;
         _messageTimer = 2.0;
+    }
+
+    /// <summary>Calcula el punto del agua (y = 0) al que apunta la cámara.</summary>
+    private void UpdateAim()
+    {
+        Camera3D cam = _player.Camera;
+        Vector3 origin = cam.GlobalPosition;
+        Vector3 dir = -cam.GlobalTransform.Basis.Z;
+
+        _aimHit = false;
+        _aimValid = false;
+
+        // Solo hay punto en la superficie si miras hacia abajo.
+        if (dir.Y < -0.01f)
+        {
+            float t = -origin.Y / dir.Y;
+            if (t > 0 && t <= ReachDistance)
+            {
+                Vector3 hit = origin + dir * t;
+                _aimCell = IceGrid.WorldToCell(hit);
+                _aimHit = true;
+
+                // No se puede colocar hielo donde estás de pie.
+                _aimValid = _grid.CanPlace(_aimCell)
+                            && _aimCell != IceGrid.WorldToCell(_player.GlobalPosition);
+            }
+        }
+
+        _ghost.Visible = _aimHit;
+        if (_aimHit)
+        {
+            _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.CubeHeight / 2f, 0f);
+            _ghostMaterial.AlbedoColor = _aimValid
+                ? new Color(0.3f, 1f, 0.4f, 0.45f)
+                : new Color(1f, 0.3f, 0.3f, 0.45f);
+        }
     }
 
     // ---------------------------------------------------------------- mundo
@@ -99,7 +187,7 @@ public partial class Main : Node3D
 
     private void BuildWorld()
     {
-        // Agua (solo visual).
+        // Agua (solo visual). El hielo que se coloque flota sobre ella.
         AddChild(new MeshInstance3D
         {
             Mesh = new PlaneMesh { Size = new Vector2(600, 600) },
@@ -107,16 +195,7 @@ public partial class Main : Node3D
             MaterialOverride = Mat(new Color(0.05f, 0.2f, 0.35f)),
         });
 
-        // Placa de hielo que crece con el progreso. Es un cilindro que se escala.
-        _iceSheet = new MeshInstance3D
-        {
-            Mesh = new CylinderMesh { TopRadius = 1f, BottomRadius = 1f, Height = 0.3f },
-            Position = new Vector3(0, -0.65f, 0),
-            MaterialOverride = Mat(new Color(0.85f, 0.95f, 1f)),
-        };
-        AddChild(_iceSheet);
-
-        // Muelle donde está el jugador (la parte de arriba queda en y = 0).
+        // Muelle: su cara de arriba queda en y = 0, igual que los cubos de hielo.
         var dock = new StaticBody3D { Position = new Vector3(0, -0.5f, 0) };
         dock.AddChild(new MeshInstance3D
         {
@@ -126,12 +205,15 @@ public partial class Main : Node3D
         dock.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(16, 1, 16) } });
         AddChild(dock);
 
-        // Estaciones.
+        // Las celdas del muelle cuentan como ocupadas: desde ellas empieza el hielo.
+        for (int x = DockMinCell; x <= DockMaxCell; x++)
+            for (int z = DockMinCell; z <= DockMaxCell; z++)
+                _grid.MarkOccupied(new Vector2I(x, z));
+        AddChild(_grid);
+        AddChild(new SectorLines());
+
         MakeStation(StationKind.Tray, "[E] Hacer hielo", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));
-
-        MakeStation(StationKind.Deposit, "[E] Colocar el hielo en el Ártico", "Ártico",
-            new Vector3(3, 0, -4), new Vector3(1.6f, 1.2f, 1.6f), new Color(1f, 1f, 1f));
     }
 
     private void MakeStation(StationKind kind, string prompt, string title, Vector3 position, Vector3 size, Color color)
@@ -164,11 +246,17 @@ public partial class Main : Node3D
         _player.StationUsed += OnStationUsed;
     }
 
-    private void UpdateIceSheet()
+    /// <summary>Sombra que muestra dónde caería el cubo: verde si se puede, roja si no.</summary>
+    private void BuildGhost()
     {
-        // La raíz cuadrada hace que el crecimiento se note ya al principio.
-        float radius = 8.5f + 91.5f * Mathf.Sqrt((float)_state.Progress);
-        _iceSheet.Scale = new Vector3(radius, 1f, radius);
+        _ghostMaterial = new StandardMaterial3D { Transparency = BaseMaterial3D.TransparencyEnum.Alpha };
+        _ghost = new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = IceGrid.VisualSize },
+            MaterialOverride = _ghostMaterial,
+            Visible = false,
+        };
+        AddChild(_ghost);
     }
 
     private static StandardMaterial3D Mat(Color color) => new() { AlbedoColor = color };
@@ -190,14 +278,13 @@ public partial class Main : Node3D
         hud.AddChild(crosshair);
         crosshair.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
 
-        // Aviso al mirar una estación y mensajes de compra.
+        // Avisos: lo que puedes hacer con lo que miras y mensajes de compra o colocación.
         _promptLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom };
         StyleLabel(_promptLabel, 22);
         hud.AddChild(_promptLabel);
         _promptLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _promptLabel.OffsetBottom = -80;
 
-        // Mensaje de victoria.
         _winLabel = new Label
         {
             Text = "¡Has recongelado el Ártico!",
@@ -221,23 +308,41 @@ public partial class Main : Node3D
 
     private void UpdateHud(double delta)
     {
-        var text = new System.Text.StringBuilder();
-        text.AppendLine($"Hielo: {Fmt(_state.Ice)}     Dinero: {Fmt(_state.Money)} $");
-        text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.00}%  ({Fmt(_state.PlacedIce)} / {Fmt(GameState.GoalIce)})");
+        var text = new StringBuilder();
+        text.AppendLine($"Hielo: {_state.IceCubes}     Puntos: {Fmt(_state.Points)}");
+        text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)");
         text.AppendLine();
 
         for (int i = 0; i < _state.Upgrades.Count; i++)
         {
             Upgrade u = _state.Upgrades[i];
-            text.AppendLine($"[{i + 1}] {u.Name}  nivel {u.Level}  -  {Fmt(u.Cost)} $   ({u.Description})");
+            text.AppendLine($"[{i + 1}] {u.Name}  nivel {u.Level}  -  {Fmt(u.Cost)} puntos   ({u.Description})");
         }
+        // Progreso del sector donde estás.
+        Vector2I sector = IceGrid.CellToSector(IceGrid.WorldToCell(_player.GlobalPosition));
+        bool onDock = sector.X is >= -1 and <= 0 && sector.Y is >= -1 and <= 0;
+        if (onDock)
+        {
+            text.AppendLine("Estás en el muelle");
+        }
+        else
+        {
+            int filled = _grid.CountOccupiedIn(sector);
+            int total = IceGrid.SectorCells * IceGrid.SectorCells;
+            text.AppendLine($"Sector ({sector.X}, {sector.Y}): {filled} / {total} cubos" + (filled == total ? "  ✓" : ""));
+        }
+
         _statsLabel.Text = text.ToString();
 
         _messageTimer -= delta;
-        string prompt = _player.LookedStation?.Prompt ?? "";
+        var prompt = new StringBuilder();
+        if (_player.LookedStation != null)
+            prompt.AppendLine(_player.LookedStation.Prompt);
+        else if (_aimValid && _state.IceCubes >= 1)
+            prompt.AppendLine("[clic izquierdo] Colocar hielo");
         if (_messageTimer > 0)
-            prompt = prompt.Length > 0 ? prompt + "\n" + _message : _message;
-        _promptLabel.Text = prompt;
+            prompt.AppendLine(_message);
+        _promptLabel.Text = prompt.ToString().TrimEnd();
 
         _winLabel.Visible = _state.Won;
     }

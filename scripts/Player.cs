@@ -11,6 +11,9 @@ public partial class Player : CharacterBody3D
 {
     public event System.Action<Station> StationUsed;
 
+    /// <summary>Cámara del jugador: sirve para saber a qué punto del agua apunta.</summary>
+    public Camera3D Camera => _camera;
+
     /// <summary>La estación que se está mirando ahora mismo (o null).</summary>
     public Station LookedStation { get; private set; }
 
