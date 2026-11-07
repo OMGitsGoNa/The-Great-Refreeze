@@ -6,9 +6,10 @@ namespace GreatRefreeze;
 
 /// <summary>
 /// Escena principal del prototipo. Construye el muelle, el agua, la rejilla de hielo,
-/// la cubitera, la máquina de mejoras, la máquina de envíos, los osos, el jugador y el HUD.
+/// la cubitera, el cubo, la máquina de mejoras, la máquina de envíos, los osos, el jugador y el HUD.
 /// Colocar hielo: apunta al agua y pulsa clic izquierdo (o mantenlo con Manos ágiles).
-/// Cubitera: mantén E frente a ella durante 2 segundos.
+/// Cubo: E sobre él para cogerlo y llevarlo en la mano. Mientras lo lleves, el hielo sale de ahí.
+/// Cubitera: con el cubo en la mano, mantén E frente a ella 2 segundos por carga.
 /// Uso: escena con un Node3D como raíz y este script asignado.
 /// </summary>
 public partial class Main : Node3D
@@ -19,12 +20,18 @@ public partial class Main : Node3D
     /// <summary>Tiempo entre cubos cuando mantienes el clic (con Manos ágiles).</summary>
     private const float HoldInterval = 0.12f;
 
-    /// <summary>Segundos que hay que mantener E en la cubitera.</summary>
+    /// <summary>Segundos que hay que mantener E en la cubitera para una carga.</summary>
     private const float ChargeSeconds = 2f;
 
     /// <summary>El muelle ocupa las celdas de -4 a 3 en X y en Z (16 x 16 unidades).</summary>
     private const int DockMinCell = -4;
     private const int DockMaxCell = 3;
+
+    private static readonly Vector3 BucketSize = new(0.7f, 0.6f, 0.7f);
+    private static readonly Vector3 BucketRestPosition = new(-1.2f, 0.3f, -4f);  // sobre el muelle
+    private static readonly Vector3 BucketHoldPosition = new(0.35f, -0.4f, -0.7f); // delante, a la derecha de la cámara
+    private static readonly Color BucketEmptyColor = new(0.95f, 0.95f, 0.97f);
+    private static readonly Color BucketFullColor = new(0.2f, 0.5f, 1f);
 
     private sealed record UpgradeRow(Upgrade Upgrade, Label Info, Button Button);
 
@@ -41,6 +48,11 @@ public partial class Main : Node3D
     private PanelContainer _menu;
     private ProgressBar _chargeBar;
 
+    private Station _bucket;
+    private CollisionShape3D _bucketShape;
+    private StandardMaterial3D _bucketMaterial;
+    private bool _bucketCarried;
+
     private bool _menuOpen;
     private bool _menuJustOpened; // evita que la misma tecla E que abre el menú lo cierre
 
@@ -49,8 +61,7 @@ public partial class Main : Node3D
     private Vector2I _aimCell;
 
     private double _placeCooldown;
-
-    private double _chargeTime;    // segundos que llevas manteniendo E en la cubitera
+    private double _chargeTime;   // segundos que llevas manteniendo E en la cubitera
 
     private int _bearCount;
 
@@ -122,15 +133,12 @@ public partial class Main : Node3D
     {
         switch (station.Kind)
         {
-            case StationKind.Upgrades:
-                OpenMenu();
+            case StationKind.Bucket:
+                PickUpBucket();
                 break;
 
-            case StationKind.Bucket:
-                double taken = _state.TakeBucketIce();
-                ShowMessage(taken > 0
-                    ? $"Has cogido {Fmt(taken)} de hielo"
-                    : "El cubo está vacío");
+            case StationKind.Upgrades:
+                OpenMenu();
                 break;
 
             case StationKind.Sell:
@@ -144,18 +152,34 @@ public partial class Main : Node3D
         }
     }
 
-    /// <summary>Carga la cubitera mientras mantienes E. Soltar antes de tiempo cancela la carga.</summary>
+    private void PickUpBucket()
+    {
+        if (_bucketCarried)
+            return;
+
+        _bucketCarried = true;
+        _bucketShape.Disabled = true; // en la mano no bloquea ni se mira como estación
+        _bucket.Reparent(_player.Camera, false);
+        _bucket.Position = BucketHoldPosition;
+        ShowMessage("Has cogido el cubo");
+    }
+
+    /// <summary>Carga la cubitera mientras mantienes E con el cubo en la mano.</summary>
     private void UpdateCharge(double delta)
     {
         bool eHeld = Input.IsPhysicalKeyPressed(Key.E);
         bool onTray = _player.LookedStation?.Kind == StationKind.Tray;
 
-        if (eHeld && onTray && _state.IsBucketFull)
+        if (eHeld && onTray && !_bucketCarried)
         {
-            ShowMessage("El cubo está lleno: cógelo con E antes de seguir");
+            ShowMessage("Coge el cubo primero (E sobre él)");
+        }
+        else if (eHeld && onTray && _state.IsBucketFull)
+        {
+            ShowMessage("El cubo está lleno: úsalo colocando hielo");
         }
 
-        if (eHeld && onTray && !_state.IsBucketFull)
+        if (eHeld && onTray && _bucketCarried && !_state.IsBucketFull)
         {
             _chargeTime += delta;
             if (_chargeTime >= ChargeSeconds)
@@ -186,9 +210,11 @@ public partial class Main : Node3D
             if (!quiet) ShowMessage("No puedes colocar hielo aquí: pégalo a lo que ya está colocado");
             return;
         }
-        if (_state.IceCubes < 1)
+        if (!_state.HasIceFor(_bucketCarried))
         {
-            if (!quiet) ShowMessage("No tienes hielo: mantén E en la cubitera");
+            if (!quiet) ShowMessage(_bucketCarried
+                ? "El cubo está vacío: llénalo en la cubitera"
+                : "No tienes hielo: coge el cubo y llénalo en la cubitera");
             return;
         }
         if (!_grid.Place(_aimCell))
@@ -198,7 +224,7 @@ public partial class Main : Node3D
         }
 
         Vector2I sector = IceGrid.CellToSector(_aimCell);
-        _state.TryPlaceCube();
+        _state.TryPlaceCube(_bucketCarried);
 
         if (_grid.IsSectorFull(sector))
         {
@@ -380,7 +406,7 @@ public partial class Main : Node3D
         AddChild(_grid);
         AddChild(new SectorLines());
 
-        MakeStation(StationKind.Tray, "[mantén E] Cargar hielo", "Cubitera",
+        MakeStation(StationKind.Tray, "[mantén E] Cargar hielo en el cubo", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));
 
         MakeStation(StationKind.Upgrades, "[E] Máquina de mejoras", "Mejoras",
@@ -389,8 +415,24 @@ public partial class Main : Node3D
         MakeStation(StationKind.Sell, "[E] Enviar peces a empresas", "Empresas",
             new Vector3(-6, 0, 4), new Vector3(1.6f, 1.4f, 1.6f), new Color(0.2f, 0.7f, 0.6f));
 
-        MakeStation(StationKind.Bucket, "", "Cubo",
-            new Vector3(-1.2f, 0, -4), new Vector3(0.7f, 0.6f, 0.7f), new Color(0.8f, 0.8f, 0.85f));
+        BuildBucket();
+    }
+
+    /// <summary>El cubo empieza en el muelle. Al cogerlo pasa a la mano y deja de tener colisión.</summary>
+    private void BuildBucket()
+    {
+        _bucketMaterial = Mat(BucketEmptyColor);
+        _bucketShape = new CollisionShape3D { Shape = new BoxShape3D { Size = BucketSize } };
+
+        _bucket = new Station
+        {
+            Kind = StationKind.Bucket,
+            Prompt = "[E] Coger el cubo",
+            Position = BucketRestPosition,
+        };
+        _bucket.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = BucketSize }, MaterialOverride = _bucketMaterial });
+        _bucket.AddChild(_bucketShape);
+        AddChild(_bucket);
     }
 
     private void MakeStation(StationKind kind, string prompt, string title, Vector3 position, Vector3 size, Color color)
@@ -423,7 +465,7 @@ public partial class Main : Node3D
         _player.StationUsed += OnStationUsed;
     }
 
-    /// <summary>Sombra que muestra dónde caería el cubo: verde si se puede, roja si no.</summary>
+    /// <summary>Sombra que muestra dónde caería el cubo. Solo aparece donde se puede colocar.</summary>
     private void BuildGhost()
     {
         _ghostMaterial = new StandardMaterial3D { Transparency = BaseMaterial3D.TransparencyEnum.Alpha };
@@ -536,8 +578,13 @@ public partial class Main : Node3D
 
     private void UpdateHud(double delta)
     {
+        // El cubo se ve azul cuando tiene hielo.
+        _bucketMaterial.AlbedoColor = _state.BucketIce >= 1 ? BucketFullColor : BucketEmptyColor;
+
         var text = new StringBuilder();
-        text.AppendLine($"Hielo: {_state.IceCubes}     Peces salvados: {Fmt(_state.Fish)}     Dinero: {FormatMoney(_state.Money)}");
+        text.AppendLine($"Hielo: {_state.IceCubes}     Cubo: {_state.BucketIce:0} / {GameState.BucketCapacity}"
+                        + (_bucketCarried ? " (en la mano)" : " (en el muelle)"));
+        text.AppendLine($"Peces salvados: {Fmt(_state.Fish)}     Dinero: {FormatMoney(_state.Money)}");
         text.AppendLine($"Ártico recongelado: {_state.Progress * 100:0.0}%  ({_state.PlacedCubes} / {GameState.GoalCubes} cubos)     Osos polares: {_bearCount}");
 
         // Progreso del sector donde estás.
@@ -554,8 +601,8 @@ public partial class Main : Node3D
         if (!_menuOpen)
         {
             if (_player.LookedStation != null)
-                prompt.AppendLine(StationPrompt(_player.LookedStation));
-            else if (_aimValid && _state.IceCubes >= 1)
+                prompt.AppendLine(_player.LookedStation.Prompt);
+            else if (_aimValid && _state.HasIceFor(_bucketCarried))
                 prompt.AppendLine(_state.HasAgileHands
                     ? "[mantén clic izquierdo] Colocar hielo"
                     : "[clic izquierdo] Colocar hielo");
@@ -580,9 +627,4 @@ public partial class Main : Node3D
     }
 
     private static string FormatMoney(double value) => $"{value:0.00} $";
-
-    /// <summary>Texto de aviso para una estación. El cubo muestra cuánto hielo tiene.</summary>
-    private string StationPrompt(Station station) => station.Kind == StationKind.Bucket
-        ? $"[E] Coger hielo del cubo ({_state.BucketIce:0} / {GameState.BucketCapacity})"
-        : station.Prompt;
 }

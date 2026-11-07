@@ -102,25 +102,29 @@ public sealed class GameState
         return added;
     }
 
-    /// <summary>Pasa todo el hielo del cubo al inventario. Devuelve cuánto ha pasado.</summary>
-    public double TakeBucketIce()
-    {
-        double taken = BucketIce;
-        Ice += taken;
-        BucketIce = 0;
-        return taken;
-    }
 
     /// <summary>Producción automática de los congeladores.</summary>
     public void Tick(double deltaSeconds) => Ice += IcePerSecond * deltaSeconds;
 
-    /// <summary>Gasta 1 de hielo, cuenta un cubo colocado y salva peces. Devuelve false si no hay hielo.</summary>
-    public bool TryPlaceCube()
+    /// <summary>
+    /// Hay hielo para colocar: el del cubo si lo llevas en la mano, o el suelto del inventario.
+    /// </summary>
+    public bool HasIceFor(bool bucketInHand) =>
+        (bucketInHand && BucketIce >= 1) || Ice >= 1;
+
+    /// <summary>
+    /// Gasta 1 de hielo (primero el del cubo si lo llevas en la mano), cuenta un cubo y salva peces.
+    /// Devuelve false si no hay hielo.
+    /// </summary>
+    public bool TryPlaceCube(bool bucketInHand)
     {
-        if (Ice < 1)
+        if (bucketInHand && BucketIce >= 1)
+            BucketIce -= 1;
+        else if (Ice >= 1)
+            Ice -= 1;
+        else
             return false;
 
-        Ice -= 1;
         PlacedCubes++;
         Fish += FishPerCube;
         return true;
