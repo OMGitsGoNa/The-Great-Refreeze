@@ -280,24 +280,6 @@ public partial class Main : Node3D
             ShowMessage($"+{Fmt(_state.FishPerCube)} peces salvados");
         }
 
-        // El primer oso polar aparece sobre el cubo que llega a 50 cubos de distancia del muelle.
-        if (_bear == null && DockDistance(_aimCell) >= GameState.BearDistanceCubes)
-            SpawnBear(_aimCell);
-    }
-
-    /// <summary>
-    /// Distancia en cubos desde el borde del muelle (0 si la celda está dentro del muelle).
-    /// Cuenta en línea recta y en diagonal como una sola distancia.
-    /// </summary>
-    private static int DockDistance(Vector2I cell)
-    {
-        int dx = cell.X > DockMaxCell ? cell.X - DockMaxCell
-               : cell.X < DockMinCell ? DockMinCell - cell.X
-               : 0;
-        int dz = cell.Y > DockMaxCell ? cell.Y - DockMaxCell
-               : cell.Y < DockMinCell ? DockMinCell - cell.Y
-               : 0;
-        return Math.Max(dx, dz);
     }
 
     private void ShowMessage(string text)
@@ -308,38 +290,91 @@ public partial class Main : Node3D
 
     // ---------------------------------------------------------------- osos polares
 
-    /// <summary>Aparece el primer oso polar sobre el hielo indicado. Se rescata pagando peces.</summary>
-    private void SpawnBear(Vector2I cell)
+    /// <summary>
+    /// El oso polar ya existe desde el inicio: sentado y triste sobre una plataforma de 3 x 3 cubos de hielo,
+    /// con el borde más cercano a 50 cubos del muelle. La plataforma es hielo fijo: no cuenta como cubo colocado.
+    /// </summary>
+    private void BuildBear()
     {
+        const int platformSize = 3;
+        const int centerZ = 0;
+        int minX = DockMaxCell + GameState.BearDistanceCubes;   // primera columna: a 50 del muelle
+        int centerX = minX + platformSize / 2;
+        int minZ = centerZ - platformSize / 2;
+
+        for (int x = minX; x < minX + platformSize; x++)
+            for (int z = minZ; z < minZ + platformSize; z++)
+                _grid.PlaceFixed(new Vector2I(x, z));
+
+        StandardMaterial3D fur = Mat(new Color(0.97f, 0.97f, 1f));
+        StandardMaterial3D dark = Mat(new Color(0.08f, 0.08f, 0.1f));
+
         _bear = new Station
         {
             Kind = StationKind.Bear,
             Prompt = $"[E] Rescatar oso polar ({Fmt(GameState.BearFishCost)} peces)",
-            Position = IceGrid.CellCenter(cell),
+            Position = IceGrid.CellCenter(new Vector2I(centerX, centerZ)),
         };
+
+        // Cuerpo sentado (esfera aplastada) y cabeza.
         _bear.AddChild(new MeshInstance3D
         {
-            Mesh = new CapsuleMesh { Radius = 0.3f, Height = 0.8f },
-            MaterialOverride = Mat(new Color(0.95f, 0.96f, 0.98f)),
-            Position = new Vector3(0, 0.4f, 0),
+            Mesh = new SphereMesh { Radius = 1.2f, Height = 2.4f },
+            MaterialOverride = fur,
+            Position = new Vector3(0, 1.2f, 0),
+            Scale = new Vector3(1f, 0.9f, 1f),
         });
+        _bear.AddChild(new MeshInstance3D
+        {
+            Mesh = new SphereMesh { Radius = 0.75f, Height = 1.5f },
+            MaterialOverride = fur,
+            Position = new Vector3(0, 2.4f, 0.2f),
+        });
+
+        // Ojos y cejas caídas por dentro (tristes).
+        foreach (float sx in new[] { -1f, 1f })
+        {
+            _bear.AddChild(new MeshInstance3D
+            {
+                Mesh = new SphereMesh { Radius = 0.1f, Height = 0.2f },
+                MaterialOverride = dark,
+                Position = new Vector3(sx * 0.28f, 2.5f, 0.85f),
+            });
+            _bear.AddChild(new MeshInstance3D
+            {
+                Mesh = new BoxMesh { Size = new Vector3(0.35f, 0.06f, 0.06f) },
+                MaterialOverride = dark,
+                Position = new Vector3(sx * 0.28f, 2.68f, 0.86f),
+                Rotation = new Vector3(0f, 0f, -sx * 0.4f),
+            });
+        }
+
+        // Boca hacia abajo.
+        foreach (float sx in new[] { -1f, 1f })
+            _bear.AddChild(new MeshInstance3D
+            {
+                Mesh = new BoxMesh { Size = new Vector3(0.25f, 0.05f, 0.05f) },
+                MaterialOverride = dark,
+                Position = new Vector3(sx * 0.16f, 2.2f, 0.9f),
+                Rotation = new Vector3(0f, 0f, sx * 0.5f),
+            });
+
         _bear.AddChild(new CollisionShape3D
         {
-            Shape = new BoxShape3D { Size = new Vector3(0.6f, 0.8f, 0.6f) },
-            Position = new Vector3(0, 0.4f, 0),
+            Shape = new BoxShape3D { Size = new Vector3(2.6f, 2.8f, 2.4f) },
+            Position = new Vector3(0, 1.4f, 0),
         });
+
         _bearLabel = new Label3D
         {
             Text = "Oso polar",
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
-            FontSize = 64,
+            FontSize = 96,
             PixelSize = 0.005f,
-            Position = new Vector3(0, 1.1f, 0),
+            Position = new Vector3(0, 3.5f, 0),
         };
         _bear.AddChild(_bearLabel);
         AddChild(_bear);
-
-        ShowMessage($"¡Ha aparecido un oso polar! Rescátalo con {Fmt(GameState.BearFishCost)} peces");
     }
 
     /// <summary>Rescata al oso gastando peces. No cuesta dinero.</summary>
@@ -503,6 +538,7 @@ public partial class Main : Node3D
                 _grid.MarkOccupied(new Vector2I(x, z));
         AddChild(_grid);
         AddChild(new SectorLines());
+        BuildBear();
 
         MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en el montón)", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));

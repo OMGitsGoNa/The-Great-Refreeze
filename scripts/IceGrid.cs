@@ -104,6 +104,26 @@ public partial class IceGrid : Node3D
         return false;
     }
 
+    /// <summary>
+    /// Crea un cubo de hielo fijo que ya existe desde el inicio (por ejemplo, la plataforma del oso).
+    /// No cuenta como cubo colocado ni como parte de un sector.
+    /// </summary>
+    public void PlaceFixed(Vector2I cell)
+    {
+        _occupied.Add(cell);
+        _dock.Add(cell);
+
+        var fixedCube = new StaticBody3D { Position = CellCenter(cell) + new Vector3(0f, -CubeHeight / 2f, 0f) };
+        fixedCube.AddChild(new MeshInstance3D
+        {
+            Mesh = _mesh,
+            MaterialOverride = _material,
+            Position = new Vector3(0f, CubeHeight / 2f - IceCubeSize / 2f, 0f),
+        });
+        fixedCube.AddChild(new CollisionShape3D { Shape = _shape });
+        AddChild(fixedCube);
+    }
+
     /// <summary>Crea un cubo de hielo en la celda. Devuelve false si no se puede colocar ahí.</summary>
     public bool Place(Vector2I cell)
     {
