@@ -107,6 +107,12 @@ public partial class Main : Node3D
     private double _autosaveTimer = AutosaveSeconds;
     private bool _resetting;            // al empezar de cero no se vuelve a guardar
 
+    // Aspecto del Ártico: agua, cielo y sol cambian con el progreso
+    private StandardMaterial3D _waterMaterial;
+    private ProceduralSkyMaterial _skyMaterial;
+    private DirectionalLight3D _sun;
+    private double _shownProgress = -1;
+
     private bool _menuOpen;
     private bool _menuJustOpened; // evita que la misma tecla E que abre el menú lo cierre
 
@@ -722,16 +728,18 @@ public partial class Main : Node3D
 
     private void BuildEnvironment()
     {
-        AddChild(new DirectionalLight3D
+        _sun = new DirectionalLight3D
         {
             RotationDegrees = new Vector3(-50, -30, 0),
             ShadowEnabled = true,
-        });
+        };
+        AddChild(_sun);
 
+        _skyMaterial = new ProceduralSkyMaterial();
         var environment = new Godot.Environment
         {
             BackgroundMode = Godot.Environment.BGMode.Sky,
-            Sky = new Sky { SkyMaterial = new ProceduralSkyMaterial() },
+            Sky = new Sky { SkyMaterial = _skyMaterial },
             AmbientLightSource = Godot.Environment.AmbientSource.Sky,
         };
         AddChild(new WorldEnvironment { Environment = environment });
@@ -740,11 +748,12 @@ public partial class Main : Node3D
     private void BuildWorld()
     {
         // Agua (solo visual). Cubre todo el mundo de sectores. El hielo flota a nivel del agua.
+        _waterMaterial = Mat(new Color(0.05f, 0.2f, 0.35f));
         AddChild(new MeshInstance3D
         {
             Mesh = new PlaneMesh { Size = new Vector2(1200, 1200) },
             Position = new Vector3(0, -0.8f, 0),
-            MaterialOverride = Mat(new Color(0.05f, 0.2f, 0.35f)),
+            MaterialOverride = _waterMaterial,
         });
 
         // Muelle: su cara de arriba queda en y = 0.
@@ -1208,9 +1217,28 @@ public partial class Main : Node3D
         label.AddThemeConstantOverride("outline_size", 6);
     }
 
+    /// <summary>
+    /// Con más Ártico recongelado el agua se vuelve blanca-azulada, el cielo más claro y el sol más fuerte.
+    /// Se usa raíz cuadrada del progreso para que se note desde el principio. Solo se recalcula si cambia el progreso.
+    /// </summary>
+    private void UpdateArcticLook()
+    {
+        double progress = _state.Progress;
+        if (Math.Abs(progress - _shownProgress) < 0.001)
+            return;
+        _shownProgress = progress;
+
+        float t = (float)Math.Sqrt(progress);
+        _waterMaterial.AlbedoColor = new Color(0.05f, 0.2f, 0.35f).Lerp(new Color(0.75f, 0.86f, 0.94f), t);
+        _skyMaterial.SkyTopColor = new Color(0.3f, 0.5f, 0.8f).Lerp(new Color(0.7f, 0.85f, 0.97f), t);
+        _skyMaterial.SkyHorizonColor = new Color(0.6f, 0.75f, 0.9f).Lerp(new Color(0.95f, 0.97f, 1f), t);
+        _sun.LightEnergy = 1f + 0.4f * t;
+    }
+
     private void UpdateHud(double delta)
     {
         RefreshPile();
+        UpdateArcticLook();
 
         // El cubo se ve azul cuando tiene hielo. El hielo de la mano se ve si no llevas el cubo.
         _bucketMaterial.AlbedoColor = _state.BucketIce >= 1 ? BucketFullColor : BucketEmptyColor;
