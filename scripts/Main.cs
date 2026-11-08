@@ -642,7 +642,18 @@ public partial class Main : Node3D
         _bearRescued = true;
         _bear.Prompt = "Oso polar rescatado";
         _bearLabel.Text = "Oso polar (rescatado)";
-        ShowMessage("¡Oso polar rescatado!");
+        _state.AddMoney(GameState.BearMoneyReward);
+        ShowMessage($"¡Oso polar rescatado! +{FormatMoney(GameState.BearMoneyReward)}");
+
+        // Celebración: el oso da dos saltos y sale un estallido de cubitos.
+        Vector3 rest = _bear.Position;
+        Tween hop = CreateTween();
+        for (int i = 0; i < 2; i++)
+        {
+            hop.TweenProperty(_bear, "position", rest + Vector3.Up * 0.6f, 0.2);
+            hop.TweenProperty(_bear, "position", rest, 0.2);
+        }
+        SpawnBurst(rest + new Vector3(0f, 2.5f, 0f), new Color(0.6f, 0.85f, 1f), 30);
     }
 
     /// <summary>

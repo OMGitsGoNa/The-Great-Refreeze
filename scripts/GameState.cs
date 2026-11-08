@@ -56,6 +56,9 @@ public sealed class GameState
     /// <summary>Peces que cuesta rescatar al oso polar (se pagan con peces, no con dinero).</summary>
     public const double BearFishCost = 100;
 
+    /// <summary>Dinero que da al rescatar al oso polar (una vez por oso).</summary>
+    public const double BearMoneyReward = 5;
+
     /// <summary>Hielos que caben sobre la mesa sin mejorar, y cuántos añade cada mejora (10, 29... hasta 200).</summary>
     public static readonly int[] PileSizes = { 10, 20, 40, 80, 160, 200 };
 
