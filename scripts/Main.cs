@@ -122,7 +122,7 @@ public partial class Main : Node3D
         BuildPlayer();
         BuildGhost();
         BuildHud();
-        DevMode.Apply(_state); // MODO DEV: quitar esta línea al eliminar DevMode.cs
+        // DevMode.Apply(_state); // MODO DEV: quitar esta línea al eliminar DevMode.cs
 
         _state.Melted += () => ShowMessage("Un hielo del montón se ha derretido");
     }

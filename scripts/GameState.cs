@@ -95,9 +95,9 @@ public sealed class GameState
     public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad (máximo 50)", 1, 1.6, 4);
     public Upgrade Tray { get; } = new("Cubitera grande", "+1 hielo por carga", 1, 1.6);
     public Upgrade Freezer { get; } = new("Congelador", "+0,5 hielo/s al montón", 4, 1.35);
-    public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 3, 2.0);
-    public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén el clic para colocar hielo sin parar", 10, 1.0, 1);
-    public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 100, 1.0, 1);
+    public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 5, 1.8);
+    public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén el clic para colocar hielo sin parar", 8, 1.0, 1);
+    public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 25, 1.0, 1);
     public Upgrade Ramps { get; } = new("Rampas", "Bajadas del muelle al hielo: sin saltar", 5, 1.0, 1);
 
     // Mesa: ambas empiezan en 2 $ y suben progresivamente.
