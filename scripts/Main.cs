@@ -400,7 +400,7 @@ public partial class Main : Node3D
                     if (_grid.IsOccupied(cell))
                         continue;
 
-                    _grid.MarkOccupied(cell);
+                    _grid.PlaceForced(cell); // hielo visible debajo de la rampa, sin peces por ese cubo
                     Sector done = _sectors.RecordPlaced(cell);
                     if (done != null)
                     {

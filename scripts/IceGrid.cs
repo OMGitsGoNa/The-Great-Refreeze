@@ -98,6 +98,16 @@ public partial class IceGrid : Node3D
         return true;
     }
 
+    /// <summary>
+    /// Pone un cubo de hielo sin comprobar nada (por ejemplo, el que queda debajo de una rampa).
+    /// No da peces: eso lo decide quien lo llama.
+    /// </summary>
+    public void PlaceForced(Vector2I cell)
+    {
+        _occupied.Add(cell);
+        AddCube(cell);
+    }
+
     private void AddCube(Vector2I cell)
     {
         // El cubo visible queda con su cara de arriba en SurfaceY; la colisión ocupa toda la celda.
