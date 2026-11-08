@@ -45,6 +45,15 @@ public partial class Main : Node3D
     private static readonly Color BucketFullColor = new(0.2f, 0.5f, 1f);
     private static readonly Color IceColor = new(0.8f, 0.93f, 1f);
 
+    /// <summary>Celdas que ocupan las rampas: fuera del muelle, dos celdas de largo y cuatro de ancho, una por lado.</summary>
+    private static readonly CellRect[] RampAreas =
+    {
+        new(15, -2, 16, 1),
+        new(-17, -2, -16, 1),
+        new(-2, 15, 1, 16),
+        new(-2, -17, 1, -16),
+    };
+
     private sealed record UpgradeRow(Upgrade Upgrade, Label Info, Button Button);
 
     private readonly GameState _state = new();
@@ -359,7 +368,7 @@ public partial class Main : Node3D
 
     /// <summary>
     /// Cuatro rampas pequeñas, una por lado del muelle. Bajan desde la altura del muelle hasta
-    /// la superficie del hielo colocado (1 unidad de largo, 2 de ancho). Sus celdas son fijas: no se puede poner hielo debajo.
+    /// la superficie del hielo colocado (1 unidad de largo, 2 de ancho). Se compran en la máquina de mejoras.
     /// </summary>
     private void BuildRamps()
     {
@@ -376,22 +385,31 @@ public partial class Main : Node3D
         AddRamp(new Vector3(0f, centerY, 7.5f + run / 2f), new Vector3(2f, thickness, length), new Vector3(angle, 0, 0), color);
         AddRamp(new Vector3(0f, centerY, -7.5f - run / 2f), new Vector3(2f, thickness, length), new Vector3(-angle, 0, 0), color);
 
-        // Celdas fijas que ocupan cada rampa (fuera del muelle, dos celdas de largo y cuatro de ancho).
-        CellRect[] areas =
-        {
-            new(15, -2, 16, 1),
-            new(-17, -2, -16, 1),
-            new(-2, 15, 1, 16),
-            new(-2, -17, 1, -16),
-        };
-        foreach (CellRect area in areas)
-        {
-            _fixedAreas.Add(area);
+    }
+
+    /// <summary>Al comprar las rampas: se crean y sus celdas dejan de contar como hielo colocable.</summary>
+    private void BuildRampsPurchased()
+    {
+        BuildRamps();
+        // Las celdas de las rampas cuentan como hielo colocado de su sector. Si ya había hielo, no se cuenta dos veces.
+        foreach (CellRect area in RampAreas)
             for (int x = area.X0; x <= area.X1; x++)
                 for (int z = area.Z0; z <= area.Z1; z++)
-                    _grid.MarkOccupied(new Vector2I(x, z));
-        }
+                {
+                    var cell = new Vector2I(x, z);
+                    if (_grid.IsOccupied(cell))
+                        continue;
+
+                    _grid.MarkOccupied(cell);
+                    Sector done = _sectors.RecordPlaced(cell);
+                    if (done != null)
+                    {
+                        double bonus = _state.SectorBonusFor(done.Ring) + (done.IsFish ? done.Free : 0);
+                        _state.AddFish(bonus);
+                    }
+                }
     }
+
 
     private void AddRamp(Vector3 center, Vector3 size, Vector3 rotation, Color color)
     {
@@ -514,6 +532,9 @@ public partial class Main : Node3D
     private void BuyUpgrade(Upgrade upgrade)
     {
         bool bought = _state.TryBuy(upgrade);
+        if (bought && upgrade == _state.Ramps)
+            BuildRampsPurchased();
+
         if (bought && upgrade == _state.Bucket)
         {
             // El cubo aparece en el muelle; hay que ir a cogerlo con E.
@@ -563,7 +584,7 @@ public partial class Main : Node3D
         _menu = new PanelContainer
         {
             Visible = false,
-            CustomMinimumSize = new Vector2(620, 0),
+            CustomMinimumSize = new Vector2(960, 0),
         };
         _menu.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center);
         _menu.GrowHorizontal = Control.GrowDirection.Both;
@@ -574,16 +595,20 @@ public partial class Main : Node3D
         _menu.AddChild(box);
         box.AddChild(new Label { Text = "Máquina de mejoras", HorizontalAlignment = HorizontalAlignment.Center });
 
+        // Dos columnas: cada mejora ocupa una celda de la cuadrícula.
+        var grid = new GridContainer { Columns = 2 };
+        box.AddChild(grid);
+
         foreach (Upgrade upgrade in _state.Upgrades)
         {
-            var row = new HBoxContainer();
+            var row = new HBoxContainer { CustomMinimumSize = new Vector2(460, 0) };
             var info = new Label { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
             var button = new Button { CustomMinimumSize = new Vector2(220, 0) };
             button.Pressed += () => BuyUpgrade(upgrade);
 
             row.AddChild(info);
             row.AddChild(button);
-            box.AddChild(row);
+            grid.AddChild(row);
             _menuRows.Add(new UpgradeRow(upgrade, info, button));
         }
 
@@ -637,7 +662,6 @@ public partial class Main : Node3D
                 _grid.MarkOccupied(new Vector2I(x, z));
         AddChild(_grid);
 
-        BuildRamps();
         BuildBear();
         _sectors = new SectorMap(new Random(), _fixedAreas); // parcelas de peces distintas en cada partida
         AddChild(new SectorLines(_sectors, () => _player.GlobalPosition));

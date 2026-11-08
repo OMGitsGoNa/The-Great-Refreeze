@@ -98,6 +98,7 @@ public sealed class GameState
     public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 3, 2.0);
     public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén el clic para colocar hielo sin parar", 10, 1.0, 1);
     public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 100, 1.0, 1);
+    public Upgrade Ramps { get; } = new("Rampas", "Bajadas del muelle al hielo: sin saltar", 5, 1.0, 1);
 
     // Mesa: ambas empiezan en 2 $ y suben progresivamente.
     public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Capacidad x2 (10 → 200)", 2, 1.5, PileSizes.Length - 1);
@@ -110,7 +111,7 @@ public sealed class GameState
         Upgrades = new[]
         {
             Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
-            Tray, Freezer, Shovel, AgileHands, Sprint,
+            Tray, Freezer, Shovel, AgileHands, Sprint, Ramps,
         };
     }
 

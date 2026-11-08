@@ -116,6 +116,19 @@ public sealed class SectorMap
         }
     }
 
+    /// <summary>
+    /// Marca una zona como fija (por ejemplo, las rampas al comprarlas): sus celdas dejan de contar como hielo colocable.
+    /// </summary>
+    public void MarkFixed(CellRect area)
+    {
+        foreach (Sector s in _sectors)
+        {
+            int overlap = s.Rect.OverlapArea(area);
+            if (overlap > 0)
+                s.Free -= overlap;
+        }
+    }
+
     /// <summary>Sector que contiene la celda, o null si está en el muelle o fuera del mundo.</summary>
     public Sector At(Vector2I cell)
     {
