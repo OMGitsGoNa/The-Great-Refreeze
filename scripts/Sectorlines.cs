@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 
 namespace GreatRefreeze;
@@ -81,14 +82,18 @@ public partial class SectorLines : Node3D
             AlbedoColor = color,
         };
 
-        bool any = false;
-        mesh.SurfaceBegin(Mesh.PrimitiveType.Lines, material);
+        // Si ningún sector cumple el filtro no se abre la superficie (Godot da error con superficies vacías).
+        var chosen = new List<Sector>();
         foreach (Sector sector in _map.Sectors)
-        {
-            if (!pick(sector))
-                continue;
+            if (pick(sector))
+                chosen.Add(sector);
 
-            any = true;
+        if (chosen.Count == 0)
+            return null;
+
+        mesh.SurfaceBegin(Mesh.PrimitiveType.Lines, material);
+        foreach (Sector sector in chosen)
+        {
             CellRect r = sector.Rect;
             float x0 = r.X0 * IceGrid.CellSize;
             float x1 = (r.X1 + 1) * IceGrid.CellSize;
@@ -102,7 +107,7 @@ public partial class SectorLines : Node3D
         }
         mesh.SurfaceEnd();
 
-        return any ? mesh : null;
+        return mesh;
     }
 
     private static void AddSegment(ImmediateMesh mesh, float ax, float az, float bx, float bz)
