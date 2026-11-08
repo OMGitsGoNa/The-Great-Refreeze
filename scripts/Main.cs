@@ -33,8 +33,17 @@ public partial class Main : Node3D
     private const float TableWidth = 3f;
     private const float TableDepth = 2.4f;
 
-    /// <summary>Hielos por capa sobre la mesa: 5 columnas x 4 filas. Con 200 hielos hay 10 capas.</summary>
-    private const int PerLayer = 20;
+    /// <summary>
+    /// La mesa crece con cada mejora de capacidad, así los hielos se reparten en el tablero en vez de apilarse muy alto.
+    /// Con 200 hielos quedan 4 capas.
+    /// </summary>
+    private const float TableGrowth = 0.3f;   // cuánto crece la mesa (en ancho y fondo) por cada mejora
+    private const float CubeSpacing = 0.55f;  // separación entre hielos sobre la mesa
+    private float TableW => TableWidth + TableGrowth * _state.TableCapacityUpgrade.Level;
+    private float TableD => TableDepth + TableGrowth * _state.TableCapacityUpgrade.Level;
+    private int Cols => Math.Max(1, (int)(TableW / CubeSpacing));
+    private int Rows => Math.Max(1, (int)(TableD / CubeSpacing));
+    private int PerLayer => Cols * Rows;
 
     private static readonly Vector3 PileCenter = new(-3f, 0f, -1.8f);   // delante de la cubitera
     private static readonly Vector3 PileSize = new(TableWidth, TableHeight, TableDepth);
@@ -90,6 +99,8 @@ public partial class Main : Node3D
     private BoxMesh _pileCubeMesh;
     private StandardMaterial3D _pileMaterial;
     private int _pileShown = -1;
+    private int _tableLevelShown = -1;   // nivel de mesa con el que está construida
+    private Node3D _tableRoot;
 
     private MeshInstance3D _handCube;   // hielo que llevas en la mano (sin cubo)
 
@@ -1086,15 +1097,28 @@ public partial class Main : Node3D
         AddChild(_pile);
     }
 
-    /// <summary>La mesa: tablero con 4 patas. Los hielos se apoyan encima.</summary>
+    /// <summary>
+    /// La mesa: tablero con 4 patas. Se (re)construye con el tamaño de su nivel; los hielos se apoyan encima.
+    /// Al crecer la mesa, el centro se desplaza hacia el fondo para no tapar la cubitera.
+    /// </summary>
     private void AddTable()
     {
+        if (_tableRoot != null)
+            _tableRoot.QueueFree();
+
+        float w = TableW;
+        float d = TableD;
+        _pile.Position = new Vector3(PileCenter.X, 0f, PileCenter.Z + (d - TableDepth) / 2f);
+
+        _tableRoot = new Node3D();
+        _pile.AddChild(_tableRoot);
+
         var wood = Mat(new Color(0.55f, 0.4f, 0.25f));
         const float topThickness = 0.1f;
 
-        _pile.AddChild(new MeshInstance3D
+        _tableRoot.AddChild(new MeshInstance3D
         {
-            Mesh = new BoxMesh { Size = new Vector3(TableWidth, topThickness, TableDepth) },
+            Mesh = new BoxMesh { Size = new Vector3(w, topThickness, d) },
             MaterialOverride = wood,
             Position = new Vector3(0, TableHeight - topThickness / 2f, 0),
         });
@@ -1103,12 +1127,12 @@ public partial class Main : Node3D
         const float legSize = 0.1f;
         foreach (float sx in new[] { -1f, 1f })
             foreach (float sz in new[] { -1f, 1f })
-                _pile.AddChild(new MeshInstance3D
+                _tableRoot.AddChild(new MeshInstance3D
                 {
                     Mesh = new BoxMesh { Size = new Vector3(legSize, legHeight, legSize) },
                     MaterialOverride = wood,
-                    Position = new Vector3(sx * (TableWidth / 2f - legSize), legHeight / 2f,
-                                           sz * (TableDepth / 2f - legSize)),
+                    Position = new Vector3(sx * (w / 2f - legSize), legHeight / 2f,
+                                           sz * (d / 2f - legSize)),
                 });
     }
 
@@ -1116,14 +1140,26 @@ public partial class Main : Node3D
     private void RefreshPile()
     {
         int count = _state.IceCubes;
+
+        // Si has mejorado la mesa, se reconstruye con su nuevo tamaño y los hielos se vuelven a colocar.
+        if (_state.TableCapacityUpgrade.Level != _tableLevelShown)
+        {
+            _tableLevelShown = _state.TableCapacityUpgrade.Level;
+            AddTable();
+            _pileShown = -1;
+        }
+
         if (count != _pileShown)
         {
             _pileShown = count;
 
             // Ajusta el collider a la altura real del montón.
-            int stackLayers = (count + PerLayer - 1) / PerLayer;
+            int perLayer = PerLayer;
+            int cols = Cols;
+            int rows = Rows;
+            int stackLayers = (count + perLayer - 1) / perLayer;
             float stackHeight = TableHeight + stackLayers * IceGrid.IceCubeSize;
-            ((BoxShape3D)_pileShape.Shape).Size = new Vector3(TableWidth, stackHeight, TableDepth);
+            ((BoxShape3D)_pileShape.Shape).Size = new Vector3(TableW, stackHeight, TableD);
             _pileShape.Position = new Vector3(0, stackHeight / 2f, 0);
 
             foreach (Node child in _pileRoot.GetChildren())
@@ -1131,17 +1167,17 @@ public partial class Main : Node3D
 
             for (int i = 0; i < count; i++)
             {
-                int layer = i / PerLayer;
-                int within = i % PerLayer;
-                int col = within % 5;
-                int row = within / 5;
+                int layer = i / perLayer;
+                int within = i % perLayer;
+                int col = within % cols;
+                int row = within / cols;
                 _pileRoot.AddChild(new MeshInstance3D
                 {
                     Mesh = _pileCubeMesh,
                     MaterialOverride = _pileMaterial,
-                    Position = new Vector3((col - 2f) * 0.55f,
+                    Position = new Vector3((col - (cols - 1) / 2f) * CubeSpacing,
                                            TableHeight + IceGrid.IceCubeSize / 2f + layer * IceGrid.IceCubeSize,
-                                           (row - 1.5f) * 0.55f),
+                                           (row - (rows - 1) / 2f) * CubeSpacing),
                 });
             }
         }
