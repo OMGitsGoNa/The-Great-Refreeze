@@ -113,6 +113,11 @@ public partial class Main : Node3D
     private DirectionalLight3D _sun;
     private double _shownProgress = -1;
 
+    // Sonidos (generados en código, ver Sounds.cs)
+    private AudioStream _crackSound;
+    private AudioStream _chimeSound;
+    private AudioStream _dripSound;
+
     private bool _menuOpen;
     private bool _menuJustOpened; // evita que la misma tecla E que abre el menú lo cierre
 
@@ -130,6 +135,9 @@ public partial class Main : Node3D
     {
         SaveData save = SaveGame.Read();
         _seed = save?.Seed ?? new Random().Next();
+        _crackSound = Sounds.Crack();
+        _chimeSound = Sounds.Chime();
+        _dripSound = Sounds.Drip();
 
         BuildEnvironment();
         BuildWorld();
@@ -142,7 +150,11 @@ public partial class Main : Node3D
         else
             DevMode.Apply(_state); // MODO DEV: quitar esta línea al eliminar DevMode.cs (solo en partida nueva)
 
-        _state.Melted += () => ShowMessage("Un hielo del montón se ha derretido");
+        _state.Melted += () =>
+        {
+            ShowMessage("Un hielo del montón se ha derretido");
+            PlaySound(_dripSound, -6);
+        };
     }
 
     public override void _Notification(int what)
@@ -334,6 +346,7 @@ public partial class Main : Node3D
         _state.TryPlaceCube(_bucketCarried);
 
         // Al completar un sector: bono que crece con el anillo. Las parcelas de peces dan además 1 pez por celda.
+        Vector3 at = IceGrid.CellCenter(_aimCell) + new Vector3(0f, 0.3f, 0f);
         Sector done = _sectors.RecordPlaced(_aimCell);
         if (done != null)
         {
@@ -342,11 +355,53 @@ public partial class Main : Node3D
             ShowMessage(done.IsFish
                 ? $"¡Parcela de peces completada! +{Fmt(bonus)} peces"
                 : $"¡Sector completado! +{Fmt(bonus)} peces de bono");
+            PlaySound(_chimeSound, 0);
+            SpawnBurst(at, new Color(1f, 0.85f, 0.3f), 36);
         }
-        else if (!quiet)
+        else
         {
-            ShowMessage($"+{Fmt(_state.FishPerCube)} peces salvados");
+            // Al mantener el clic (Manos ágiles) no hay partículas ni mensaje: solo un crujido más bajo.
+            PlaySound(_crackSound, quiet ? -10 : -3);
+            if (!quiet)
+            {
+                ShowMessage($"+{Fmt(_state.FishPerCube)} peces salvados");
+                SpawnBurst(at, new Color(0.9f, 0.97f, 1f), 12);
+            }
         }
+    }
+
+    /// <summary>Reproduce un sonido una vez y lo borra al terminar.</summary>
+    private void PlaySound(AudioStream stream, float volumeDb)
+    {
+        var player = new AudioStreamPlayer { Stream = stream, VolumeDb = volumeDb };
+        AddChild(player);
+        player.Finished += player.QueueFree;
+        player.Play();
+    }
+
+    /// <summary>Estallido de pequeños cubos de hielo que salen hacia arriba y caen. Se borra solo.</summary>
+    private void SpawnBurst(Vector3 position, Color color, int amount)
+    {
+        var particles = new CpuParticles3D
+        {
+            Position = position,
+            Emitting = false,
+            OneShot = true,
+            Explosiveness = 1f,
+            Amount = amount,
+            Lifetime = 0.7,
+            Direction = Vector3.Up,
+            Spread = 70f,
+            InitialVelocityMin = 0.8f,
+            InitialVelocityMax = 1.8f,
+            Gravity = new Vector3(0, -4f, 0),
+            ScaleAmountMin = 0.5f,
+            ScaleAmountMax = 1f,
+            Mesh = new BoxMesh { Size = new Vector3(0.08f, 0.08f, 0.08f), Material = Mat(color) },
+        };
+        AddChild(particles);
+        particles.Emitting = true;
+        GetTree().CreateTimer(1.5).Timeout += particles.QueueFree;
     }
 
     private void ShowMessage(string text)
