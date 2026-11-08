@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace GreatRefreeze;
 
@@ -275,6 +276,35 @@ public sealed class GameState
         double earned = toSell * FishPrice;
         Money += earned;
         return earned;
+    }
+
+    /// <summary>Copia el estado de la partida a los datos que se guardan.</summary>
+    public void WriteTo(SaveData data)
+    {
+        data.Ice = Ice;
+        data.HandIce = HandIce;
+        data.BucketIce = BucketIce;
+        data.Fish = Fish;
+        data.Money = Money;
+        data.PlacedCubes = PlacedCubes;
+        data.MeltTimer = _meltTimer;
+        data.UpgradeLevels = Upgrades.Select(u => u.Level).ToArray();
+    }
+
+    /// <summary>Restaura el estado guardado. Si la lista de mejoras no coincide, no toca los niveles.</summary>
+    public void ReadFrom(SaveData data)
+    {
+        Ice = data.Ice;
+        HandIce = data.HandIce;
+        BucketIce = data.BucketIce;
+        Fish = data.Fish;
+        Money = data.Money;
+        PlacedCubes = data.PlacedCubes;
+        _meltTimer = data.MeltTimer;
+
+        if (data.UpgradeLevels.Length == Upgrades.Count)
+            for (int i = 0; i < Upgrades.Count; i++)
+                Upgrades[i].Level = data.UpgradeLevels[i];
     }
 
     /// <summary>

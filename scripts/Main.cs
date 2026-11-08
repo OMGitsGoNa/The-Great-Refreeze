@@ -102,6 +102,11 @@ public partial class Main : Node3D
     private Label3D _bearLabel;
     private bool _bearRescued;
 
+    private const double AutosaveSeconds = 30;
+    private int _seed;                  // semilla de las parcelas de peces: se guarda para que la partida sea la misma
+    private double _autosaveTimer = AutosaveSeconds;
+    private bool _resetting;            // al empezar de cero no se vuelve a guardar
+
     private bool _menuOpen;
     private bool _menuJustOpened; // evita que la misma tecla E que abre el menú lo cierre
 
@@ -117,14 +122,27 @@ public partial class Main : Node3D
 
     public override void _Ready()
     {
+        SaveData save = SaveGame.Read();
+        _seed = save?.Seed ?? new Random().Next();
+
         BuildEnvironment();
         BuildWorld();
         BuildPlayer();
         BuildGhost();
         BuildHud();
-        // DevMode.Apply(_state); // MODO DEV: quitar esta línea al eliminar DevMode.cs
+
+        if (save != null)
+            LoadGame(save);
+        else
+            DevMode.Apply(_state); // MODO DEV: quitar esta línea al eliminar DevMode.cs (solo en partida nueva)
 
         _state.Melted += () => ShowMessage("Un hielo del montón se ha derretido");
+    }
+
+    public override void _Notification(int what)
+    {
+        if (what == NotificationWMCloseRequest && !_resetting)
+            SaveGameNow();
     }
 
     public override void _Process(double delta)
@@ -151,6 +169,16 @@ public partial class Main : Node3D
             {
                 TryPlaceAtAim(quiet: true);
                 _placeCooldown = HoldInterval;
+            }
+        }
+
+        if (!_resetting)
+        {
+            _autosaveTimer -= delta;
+            if (_autosaveTimer <= 0)
+            {
+                _autosaveTimer = AutosaveSeconds;
+                SaveGameNow();
             }
         }
 
@@ -231,12 +259,18 @@ public partial class Main : Node3D
         if (_bucketCarried || !_state.HasBucket)
             return;
 
+        CarryBucket();
+        _state.PutHandIceInBucket();
+        ShowMessage("Has cogido el cubo");
+    }
+
+    /// <summary>Pone el cubo en la mano del jugador (lo usan al coger el cubo y al cargar la partida).</summary>
+    private void CarryBucket()
+    {
         _bucketCarried = true;
         _bucketShape.Disabled = true; // en la mano no bloquea ni se mira como estación
-        _state.PutHandIceInBucket();
         _bucket.Reparent(_player.Camera, false);
         _bucket.Position = BucketHoldPosition;
-        ShowMessage("Has cogido el cubo");
     }
 
     /// <summary>Carga la cubitera mientras mantienes E. Cada carga completa hace hielo en la mesa.</summary>
@@ -509,6 +543,69 @@ public partial class Main : Node3D
         AddChild(_bear);
     }
 
+    // ---------------------------------------------------------------- partida guardada
+
+    /// <summary>Guarda el estado actual: economía, mejoras, hielo colocado y oso. Se hace cada 30 s y al cerrar.</summary>
+    private void SaveGameNow()
+    {
+        var data = new SaveData
+        {
+            Seed = _seed,
+            BucketCarried = _bucketCarried,
+            BearRescued = _bearRescued,
+        };
+        _state.WriteTo(data);
+
+        foreach (Vector2I cell in _grid.PlacedCells)
+            data.Cells.Add(new[] { cell.X, cell.Y });
+
+        SaveGame.Write(data);
+    }
+
+    /// <summary>
+    /// Restaura una partida guardada. Los peces y el dinero ya están en el guardado, así que los sectores
+    /// se recalculan sin volver a dar bonos.
+    /// </summary>
+    private void LoadGame(SaveData save)
+    {
+        _state.ReadFrom(save);
+
+        foreach (int[] c in save.Cells)
+        {
+            var cell = new Vector2I(c[0], c[1]);
+            _grid.PlaceForced(cell);       // hielo ya colocado, sin peces
+            _sectors.RecordPlaced(cell);   // revela sectores y cuenta cubos (el bono ya estaba cobrado)
+        }
+
+        if (_state.Ramps.Level > 0)
+            BuildRamps();
+
+        if (_state.HasBucket)
+        {
+            _bucket.Visible = true;
+            _bucketShape.Disabled = false;
+            if (save.BucketCarried)
+                CarryBucket();
+        }
+
+        _bearRescued = save.BearRescued;
+        if (_bearRescued)
+        {
+            _bear.Prompt = "Oso polar rescatado";
+            _bearLabel.Text = "Oso polar (rescatado)";
+        }
+
+        ShowMessage("Partida cargada");
+    }
+
+    /// <summary>Borra el guardado y empieza de cero recargando la escena.</summary>
+    private void StartNewGame()
+    {
+        _resetting = true;
+        SaveGame.Delete();
+        GetTree().ReloadCurrentScene();
+    }
+
     // ---------------------------------------------------------------- menú de mejoras
 
     private void OpenMenu()
@@ -612,6 +709,10 @@ public partial class Main : Node3D
             _menuRows.Add(new UpgradeRow(upgrade, info, button));
         }
 
+        var reset = new Button { Text = "Nueva partida (borra el guardado)" };
+        reset.Pressed += StartNewGame;
+        box.AddChild(reset);
+
         var close = new Button { Text = "Cerrar (E / Esc)" };
         close.Pressed += CloseMenu;
         box.AddChild(close);
@@ -663,7 +764,7 @@ public partial class Main : Node3D
         AddChild(_grid);
 
         BuildBear();
-        _sectors = new SectorMap(new Random(), _fixedAreas); // parcelas de peces distintas en cada partida
+        _sectors = new SectorMap(new Random(_seed), _fixedAreas); // parcelas de peces distintas en cada partida, guardadas por semilla
         AddChild(new SectorLines(_sectors, () => _player.GlobalPosition));
 
         MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en la mesa)", "Cubitera",

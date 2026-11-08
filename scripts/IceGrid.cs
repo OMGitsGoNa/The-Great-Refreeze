@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace GreatRefreeze;
@@ -49,6 +50,9 @@ public partial class IceGrid : Node3D
         new((cell.X + 0.5f) * CellSize, SurfaceY, (cell.Y + 0.5f) * CellSize);
 
     public bool IsOccupied(Vector2I cell) => _occupied.Contains(cell);
+
+    /// <summary>Celdas con hielo puesto por el jugador (sin muelle ni plataformas fijas), para guardar la partida.</summary>
+    public IEnumerable<Vector2I> PlacedCells => _occupied.Where(c => !_dock.Contains(c));
 
     /// <summary>Marca una celda del muelle como ocupada sin crear hielo.</summary>
     public void MarkOccupied(Vector2I cell)
