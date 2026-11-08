@@ -52,6 +52,8 @@ public partial class Main : Node3D
     private readonly List<UpgradeRow> _menuRows = new();
     private SectorMap _sectors;
     private CellRect _bearPlatform;
+    private readonly List<CellRect> _fixedAreas = new(); // zonas que nunca cuentan como cubos: plataforma del oso y rampas
+    private CollisionShape3D _pileShape;
 
     private Player _player;
     private MeshInstance3D _ghost;
@@ -356,6 +358,50 @@ public partial class Main : Node3D
     }
 
     /// <summary>
+    /// Cuatro rampas pequeñas, una por lado del muelle. Bajan desde la altura del muelle hasta
+    /// la superficie del hielo colocado (1 unidad de largo, 2 de ancho). Sus celdas son fijas: no se puede poner hielo debajo.
+    /// </summary>
+    private void BuildRamps()
+    {
+        const float rise = 0.75f;   // del muelle (y = 0) a la superficie del hielo (y = -0.75)
+        const float run = 1f;       // largo horizontal de la rampa
+        const float thickness = 0.2f;
+        float length = Mathf.Sqrt(run * run + rise * rise);
+        float angle = Mathf.Atan(rise / run);
+        float centerY = -rise / 2f - thickness / 2f;
+        Color color = new(0.45f, 0.4f, 0.35f);
+
+        AddRamp(new Vector3(7.5f + run / 2f, centerY, 0f), new Vector3(length, thickness, 2f), new Vector3(0, 0, -angle), color);
+        AddRamp(new Vector3(-7.5f - run / 2f, centerY, 0f), new Vector3(length, thickness, 2f), new Vector3(0, 0, angle), color);
+        AddRamp(new Vector3(0f, centerY, 7.5f + run / 2f), new Vector3(2f, thickness, length), new Vector3(angle, 0, 0), color);
+        AddRamp(new Vector3(0f, centerY, -7.5f - run / 2f), new Vector3(2f, thickness, length), new Vector3(-angle, 0, 0), color);
+
+        // Celdas fijas que ocupan cada rampa (fuera del muelle, dos celdas de largo y cuatro de ancho).
+        CellRect[] areas =
+        {
+            new(15, -2, 16, 1),
+            new(-17, -2, -16, 1),
+            new(-2, 15, 1, 16),
+            new(-2, -17, 1, -16),
+        };
+        foreach (CellRect area in areas)
+        {
+            _fixedAreas.Add(area);
+            for (int x = area.X0; x <= area.X1; x++)
+                for (int z = area.Z0; z <= area.Z1; z++)
+                    _grid.MarkOccupied(new Vector2I(x, z));
+        }
+    }
+
+    private void AddRamp(Vector3 center, Vector3 size, Vector3 rotation, Color color)
+    {
+        var ramp = new StaticBody3D { Position = center, Rotation = rotation };
+        ramp.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = size }, MaterialOverride = Mat(color) });
+        ramp.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = size } });
+        AddChild(ramp);
+    }
+
+    /// <summary>
     /// El oso polar ya existe desde el inicio: sentado y triste sobre una plataforma de 3 x 3 cubos de hielo,
     /// con el borde más cercano a 50 cubos del muelle. La plataforma es hielo fijo: no cuenta como cubo colocado.
     /// </summary>
@@ -368,6 +414,7 @@ public partial class Main : Node3D
         int minZ = centerZ - platformSize / 2;
 
         _bearPlatform = new CellRect(minX, minZ, minX + platformSize - 1, minZ + platformSize - 1);
+        _fixedAreas.Add(_bearPlatform);
 
         for (int x = minX; x < minX + platformSize; x++)
             for (int z = minZ; z < minZ + platformSize; z++)
@@ -578,10 +625,10 @@ public partial class Main : Node3D
         var dock = new StaticBody3D { Position = new Vector3(0, -0.5f, 0) };
         dock.AddChild(new MeshInstance3D
         {
-            Mesh = new BoxMesh { Size = new Vector3(16, 1, 16) },
+            Mesh = new BoxMesh { Size = new Vector3(15, 1, 15) },
             MaterialOverride = Mat(new Color(0.45f, 0.4f, 0.35f)),
         });
-        dock.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(16, 1, 16) } });
+        dock.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(15, 1, 15) } });
         AddChild(dock);
 
         // Las celdas del muelle cuentan como ocupadas: desde ellas empieza el hielo.
@@ -590,8 +637,9 @@ public partial class Main : Node3D
                 _grid.MarkOccupied(new Vector2I(x, z));
         AddChild(_grid);
 
+        BuildRamps();
         BuildBear();
-        _sectors = new SectorMap(new Random(), new[] { _bearPlatform }); // parcelas de peces distintas en cada partida
+        _sectors = new SectorMap(new Random(), _fixedAreas); // parcelas de peces distintas en cada partida
         AddChild(new SectorLines(_sectors, () => _player.GlobalPosition));
 
         MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en la mesa)", "Cubitera",
@@ -621,11 +669,13 @@ public partial class Main : Node3D
             Prompt = "[E] Coger hielo de la mesa",
             Position = new Vector3(PileCenter.X, 0f, PileCenter.Z),
         };
-        _pile.AddChild(new CollisionShape3D
+        // El collider crece con el montón para que puedas apuntar al hielo que se apoya en la mesa.
+        _pileShape = new CollisionShape3D
         {
             Shape = new BoxShape3D { Size = PileSize },
             Position = new Vector3(0, PileSize.Y / 2f, 0),
-        });
+        };
+        _pile.AddChild(_pileShape);
         AddTable();
 
         _pileRoot = new Node3D();
@@ -675,6 +725,12 @@ public partial class Main : Node3D
         if (count != _pileShown)
         {
             _pileShown = count;
+
+            // Ajusta el collider a la altura real del montón.
+            int stackLayers = (count + PerLayer - 1) / PerLayer;
+            float stackHeight = TableHeight + stackLayers * IceGrid.IceCubeSize;
+            ((BoxShape3D)_pileShape.Shape).Size = new Vector3(TableWidth, stackHeight, TableDepth);
+            _pileShape.Position = new Vector3(0, stackHeight / 2f, 0);
 
             foreach (Node child in _pileRoot.GetChildren())
                 child.QueueFree();

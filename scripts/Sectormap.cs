@@ -58,8 +58,8 @@ public sealed class Sector
 public sealed class SectorMap
 {
     /// <summary>Límites del muelle en celdas (16 x 16 unidades con celdas de 0,5).</summary>
-    public const int DockMin = -16;
-    public const int DockMax = 15;
+    public const int DockMin = -15;
+    public const int DockMax = 14;
 
     /// <summary>Número de anillos. Con 14 se cierra el espacio hacia 1 millón de cubos.</summary>
     public const int RingCount = 14;
