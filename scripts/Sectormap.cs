@@ -37,6 +37,9 @@ public sealed class Sector
 
     public bool Completed => Free > 0 && Filled >= Free;
 
+    /// <summary>Un sector se revela al colocar su primer cubo.</summary>
+    public bool Revealed => Filled > 0;
+
     public Sector(int ring, CellRect rect)
     {
         Ring = ring;
@@ -67,6 +70,9 @@ public sealed class SectorMap
     private readonly List<Sector> _sectors = new();
 
     public IReadOnlyList<Sector> Sectors => _sectors;
+
+    /// <summary>Cuántos sectores ya están revelados (tienen al menos un cubo).</summary>
+    public int RevealedCount { get; private set; }
 
     /// <summary>Distancia en celdas desde el muelle hasta el borde exterior del anillo k (0 para el muelle).</summary>
     public static int RingEdge(int k) => RingStep * k * (k + 1) / 2;
@@ -129,8 +135,30 @@ public sealed class SectorMap
             return null;
 
         bool wasDone = s.Completed;
+        if (s.Filled == 0)
+            RevealedCount++; // el primer cubo en un sector lo revela: se ven sus bordes y si es parcela de peces
         s.AddFilled();
         return !wasDone && s.Completed ? s : null;
+    }
+
+    /// <summary>Parte el rango [lo, hi] en trozos de 'step'. Si el último trozo es más pequeño, se une al anterior.</summary>
+    private static List<(int A, int B)> Partition(int lo, int hi, int step)
+    {
+        var parts = new List<(int A, int B)>();
+        for (int s = lo; s <= hi; s += step)
+            parts.Add((s, Math.Min(s + step - 1, hi)));
+
+        if (parts.Count > 1)
+        {
+            var last = parts[^1];
+            if (last.B - last.A + 1 < step)
+            {
+                parts.RemoveAt(parts.Count - 1);
+                var prev = parts[^1];
+                parts[^1] = (prev.A, last.B);
+            }
+        }
+        return parts;
     }
 
     /// <summary>
@@ -150,16 +178,15 @@ public sealed class SectorMap
         int ox0 = oz0;
         int ox1 = oz1;
 
-        for (int x = ox0; x <= ox1; x += depth)
+        // Los trozos sueltos de las esquinas se unen al sector vecino, así ningún sector es más pequeño que su anillo.
+        foreach (var (x, x1) in Partition(ox0, ox1, depth))
         {
-            int x1 = Math.Min(x + depth - 1, ox1);
             _sectors.Add(new Sector(k, new CellRect(x, oz0, x1, ix0 - 1)));   // norte
             _sectors.Add(new Sector(k, new CellRect(x, ix1 + 1, x1, oz1)));   // sur
         }
 
-        for (int z = ix0; z <= ix1; z += depth)
+        foreach (var (z, z1) in Partition(ix0, ix1, depth))
         {
-            int z1 = Math.Min(z + depth - 1, ix1);
             _sectors.Add(new Sector(k, new CellRect(ox0, z, ix0 - 1, z1)));   // oeste
             _sectors.Add(new Sector(k, new CellRect(ix1 + 1, z, ox1, z1)));   // este
         }

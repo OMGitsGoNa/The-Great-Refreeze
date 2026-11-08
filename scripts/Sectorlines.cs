@@ -26,6 +26,7 @@ public partial class SectorLines : Node3D
     private readonly MeshInstance3D _fishLines = new();
     private Vector3 _drawnFrom;
     private bool _drawn;
+    private int _drawnReveal;
 
     public SectorLines(SectorMap map, Func<Vector3> viewer)
     {
@@ -42,13 +43,18 @@ public partial class SectorLines : Node3D
     public override void _Process(double delta)
     {
         Vector3 p = _viewer();
-        if (_drawn && new Vector2(p.X - _drawnFrom.X, p.Z - _drawnFrom.Z).Length() < RedrawDistance)
+        bool moved = new Vector2(p.X - _drawnFrom.X, p.Z - _drawnFrom.Z).Length() >= RedrawDistance;
+        bool revealedChanged = _map.RevealedCount != _drawnReveal;
+        if (_drawn && !moved && !revealedChanged)
             return;
 
         _drawn = true;
         _drawnFrom = p;
-        _lines.Mesh = BuildOutlines(s => !s.IsFish && IsNear(s, p), new Color(0.95f, 0.98f, 1f));
-        _fishLines.Mesh = BuildOutlines(s => s.IsFish && IsNear(s, p), new Color(1f, 0.85f, 0.1f));
+        _drawnReveal = _map.RevealedCount;
+
+        // Solo se ven los sectores ya revelados (con algún cubo) y cerca del jugador.
+        _lines.Mesh = BuildOutlines(s => !s.IsFish && s.Revealed && IsNear(s, p), new Color(0.95f, 0.98f, 1f));
+        _fishLines.Mesh = BuildOutlines(s => s.IsFish && s.Revealed && IsNear(s, p), new Color(1f, 0.85f, 0.1f));
     }
 
     /// <summary>¿Está el sector dentro del radio visible? Mide hasta el borde más cercano del sector.</summary>

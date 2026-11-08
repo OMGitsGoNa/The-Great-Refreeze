@@ -800,8 +800,17 @@ public partial class Main : Node3D
                 _aimCell = IceGrid.WorldToCell(hit);
                 _aimHit = true;
 
-                // Si la celda exacta no sirve, usa la vecina más cercana al punto que miras.
-                _aimValid = CanPlaceAt(_aimCell) || FindPlaceableCell(hit);
+                // Orden: 1) la celda recta delante de ti; 2) la que miras; 3) la vecina más cercana al punto mirado.
+                Vector2I straight = StraightAheadCell();
+                if (CanPlaceAt(straight))
+                {
+                    _aimCell = straight;
+                    _aimValid = true;
+                }
+                else
+                {
+                    _aimValid = CanPlaceAt(_aimCell) || FindPlaceableCell(hit);
+                }
             }
         }
 
@@ -812,6 +821,16 @@ public partial class Main : Node3D
             _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.VisualSize.Y / 2f, 0f);
             _ghostMaterial.AlbedoColor = new Color(0.3f, 1f, 0.4f, 0.45f);
         }
+    }
+
+    /// <summary>Celda recta delante del jugador, en horizontal, justo al lado de sus pies.</summary>
+    private Vector2I StraightAheadCell()
+    {
+        Vector3 forward = -_player.GlobalTransform.Basis.Z;
+        forward.Y = 0;
+        forward = forward.Normalized();
+        Vector3 ahead = _player.GlobalPosition + forward * IceGrid.CellSize * 1.5f;
+        return IceGrid.WorldToCell(ahead);
     }
 
     /// <summary>
@@ -1025,8 +1044,8 @@ public partial class Main : Node3D
         _bucketLabel.Text = $"Cubo  {_state.BucketIce} / {_state.BucketMax}";
 
         Sector here = _sectors.At(IceGrid.WorldToCell(_player.GlobalPosition));
-        _sectorLabel.Text = here == null
-            ? ""
+        _sectorLabel.Text = here == null ? ""
+            : !here.Revealed ? "Sector sin explorar"
             : $"Anillo {here.Ring}  ·  {here.Filled} / {here.Free}"
               + (here.IsFish ? "  ·  parcela de peces" : "")
               + (here.Completed ? "  ✓" : "");
