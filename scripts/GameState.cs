@@ -56,8 +56,7 @@ public sealed class GameState
     public const double BearFishCost = 100;
 
     /// <summary>Hielos que caben sobre la mesa sin mejorar, y cuántos añade cada mejora (10, 29... hasta 200).</summary>
-    public const int PileBase = 10;
-    public const int PileStep = 19;
+    public static readonly int[] PileSizes = { 10, 20, 40, 80, 160, 200 };
 
     /// <summary>Segundos base entre derretimientos de un hielo del montón, y cuántos añade cada mejora de mesa resistente.</summary>
     public const double MeltBaseSeconds = 15;
@@ -101,7 +100,7 @@ public sealed class GameState
     public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 100, 1.0, 1);
 
     // Mesa: ambas empiezan en 2 $ y suben progresivamente.
-    public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "+19 de capacidad (máximo 200)", 2, 1.5, 10);
+    public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Capacidad x2 (10 → 200)", 2, 1.5, PileSizes.Length - 1);
     public Upgrade ToughTableUpgrade { get; } = new("Mesa resistente", "El hielo tarda 5 s más en derretirse", 2, 1.5, 5);
 
     public IReadOnlyList<Upgrade> Upgrades { get; }
@@ -122,8 +121,8 @@ public sealed class GameState
     /// <summary>Capacidad actual del cubo: 10, 20, 30, 40 o 50.</summary>
     public int BucketMax => BucketBase + BucketStep * BucketCapacityUpgrade.Level;
 
-    /// <summary>Capacidad actual de la mesa: 10 sin mejorar, hasta 200.</summary>
-    public int PileMax => PileBase + PileStep * TableCapacityUpgrade.Level;
+    /// <summary>Capacidad actual de la mesa: 10, 20, 40, 80, 160 o 200 (cada mejora la duplica).</summary>
+    public int PileMax => PileSizes[TableCapacityUpgrade.Level];
 
     /// <summary>Segundos que tarda en derretirse un hielo de la mesa.</summary>
     public double MeltTime => MeltBaseSeconds + MeltStepSeconds * ToughTableUpgrade.Level;

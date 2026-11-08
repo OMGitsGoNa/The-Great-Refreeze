@@ -592,7 +592,7 @@ public partial class Main : Node3D
 
         BuildBear();
         _sectors = new SectorMap(new Random(), new[] { _bearPlatform }); // parcelas de peces distintas en cada partida
-        AddChild(new SectorLines(_sectors));
+        AddChild(new SectorLines(_sectors, () => _player.GlobalPosition));
 
         MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en la mesa)", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));
