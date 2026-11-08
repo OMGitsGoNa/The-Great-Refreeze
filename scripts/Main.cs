@@ -31,7 +31,10 @@ public partial class Main : Node3D
     /// <summary>Mesa del montón: altura de la superficie y medidas de la tabla.</summary>
     private const float TableHeight = 0.9f;
     private const float TableWidth = 3f;
-    private const float TableDepth = 1.2f;
+    private const float TableDepth = 2.4f;
+
+    /// <summary>Hielos por capa sobre la mesa: 5 columnas x 4 filas. Con 200 hielos hay 10 capas.</summary>
+    private const int PerLayer = 20;
 
     private static readonly Vector3 PileCenter = new(-3f, 0f, -1.8f);   // delante de la cubitera
     private static readonly Vector3 PileSize = new(TableWidth, TableHeight, TableDepth);
@@ -239,7 +242,7 @@ public partial class Main : Node3D
                 double made = _state.ProduceFromTray();
                 ShowMessage(made > 0
                     ? $"+{Fmt(made)} hielo a la mesa"
-                    : $"La mesa está llena ({GameState.PileCapacity} máximo)");
+                    : $"La mesa está llena ({_state.PileMax} máximo)");
                 _chargeTime = 0; // si sigues con E, empieza otra carga enseguida
             }
         }
@@ -678,24 +681,27 @@ public partial class Main : Node3D
 
             for (int i = 0; i < count; i++)
             {
-                int col = i % 5;
-                int row = i / 5;
+                int layer = i / PerLayer;
+                int within = i % PerLayer;
+                int col = within % 5;
+                int row = within / 5;
                 _pileRoot.AddChild(new MeshInstance3D
                 {
                     Mesh = _pileCubeMesh,
                     MaterialOverride = _pileMaterial,
                     Position = new Vector3((col - 2f) * 0.55f,
-                                           TableHeight + IceGrid.IceCubeSize / 2f,
-                                           (row - 0.5f) * 0.55f),
+                                           TableHeight + IceGrid.IceCubeSize / 2f + layer * IceGrid.IceCubeSize,
+                                           (row - 1.5f) * 0.55f),
                 });
             }
         }
 
         // Cuenta atrás del siguiente derretimiento, solo si hay hielo.
         _pileLabel.Text = count > 0
-            ? $"{count} / {GameState.PileCapacity}  ·  {_state.SecondsUntilMelt:0} s"
-            : $"0 / {GameState.PileCapacity}";
-        _pileLabel.Position = new Vector3(0, TableHeight + 0.6f, 0);
+            ? $"{count} / {_state.PileMax}  ·  {_state.SecondsUntilMelt:0} s"
+            : $"0 / {_state.PileMax}";
+        int layers = (count + PerLayer - 1) / PerLayer;
+        _pileLabel.Position = new Vector3(0, TableHeight + 0.6f + layers * IceGrid.IceCubeSize, 0);
     }
 
     /// <summary>El cubo empieza oculto. Aparece en el muelle al comprarlo; al cogerlo pasa a la mano.</summary>

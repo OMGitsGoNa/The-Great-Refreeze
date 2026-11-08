@@ -55,11 +55,13 @@ public sealed class GameState
     /// <summary>Peces que cuesta rescatar al oso polar (se pagan con peces, no con dinero).</summary>
     public const double BearFishCost = 100;
 
-    /// <summary>Máximo de hielos que caben sobre la mesa a la vez.</summary>
-    public const int PileCapacity = 10;
+    /// <summary>Hielos que caben sobre la mesa sin mejorar, y cuántos añade cada mejora (10, 29... hasta 200).</summary>
+    public const int PileBase = 10;
+    public const int PileStep = 19;
 
-    /// <summary>Segundos entre derretimientos de un hielo del montón.</summary>
-    public const double MeltSeconds = 15;
+    /// <summary>Segundos base entre derretimientos de un hielo del montón, y cuántos añade cada mejora de mesa resistente.</summary>
+    public const double MeltBaseSeconds = 15;
+    public const double MeltStepSeconds = 5;
 
     /// <summary>Hielo que se puede llevar en la mano sin cubo.</summary>
     public const int HandCapacity = 1;
@@ -98,11 +100,19 @@ public sealed class GameState
     public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén el clic para colocar hielo sin parar", 10, 1.0, 1);
     public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 100, 1.0, 1);
 
+    // Mesa: ambas empiezan en 2 $ y suben progresivamente.
+    public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "+19 de capacidad (máximo 200)", 2, 1.5, 10);
+    public Upgrade ToughTableUpgrade { get; } = new("Mesa resistente", "El hielo tarda 5 s más en derretirse", 2, 1.5, 5);
+
     public IReadOnlyList<Upgrade> Upgrades { get; }
 
     public GameState()
     {
-        Upgrades = new[] { Bucket, BucketCapacityUpgrade, Tray, Freezer, Shovel, AgileHands, Sprint };
+        Upgrades = new[]
+        {
+            Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
+            Tray, Freezer, Shovel, AgileHands, Sprint,
+        };
     }
 
     public bool HasBucket => Bucket.Level > 0;
@@ -111,6 +121,12 @@ public sealed class GameState
 
     /// <summary>Capacidad actual del cubo: 10, 20, 30, 40 o 50.</summary>
     public int BucketMax => BucketBase + BucketStep * BucketCapacityUpgrade.Level;
+
+    /// <summary>Capacidad actual de la mesa: 10 sin mejorar, hasta 200.</summary>
+    public int PileMax => PileBase + PileStep * TableCapacityUpgrade.Level;
+
+    /// <summary>Segundos que tarda en derretirse un hielo de la mesa.</summary>
+    public double MeltTime => MeltBaseSeconds + MeltStepSeconds * ToughTableUpgrade.Level;
 
     public double IcePerUse => 1 + Tray.Level;
     public double IcePerSecond => Freezer.Level * FreezerRate;
@@ -122,7 +138,7 @@ public sealed class GameState
     public int IceCubes => (int)Math.Floor(Ice);
 
     /// <summary>Segundos que faltan para que se derrita el siguiente hielo del montón.</summary>
-    public double SecondsUntilMelt => MeltSeconds - _meltTimer;
+    public double SecondsUntilMelt => MeltTime - _meltTimer;
 
     /// <summary>Progreso entre 0 y 1.</summary>
     public double Progress => Math.Min(1.0, (double)PlacedCubes / GoalCubes);
@@ -133,7 +149,7 @@ public sealed class GameState
     /// <summary>Producción de los congeladores y derretimiento del montón.</summary>
     public void Tick(double deltaSeconds)
     {
-        Ice = Math.Min(PileCapacity, Ice + IcePerSecond * deltaSeconds);
+        Ice = Math.Min(PileMax, Ice + IcePerSecond * deltaSeconds);
 
         if (IceCubes <= 0)
         {
@@ -142,7 +158,7 @@ public sealed class GameState
         }
 
         _meltTimer += deltaSeconds;
-        if (_meltTimer >= MeltSeconds)
+        if (_meltTimer >= MeltTime)
         {
             _meltTimer = 0;
             Ice -= 1;
@@ -153,7 +169,7 @@ public sealed class GameState
     /// <summary>La cubitera hace hielo y lo deja en el montón. Devuelve cuánto ha hecho.</summary>
     public double ProduceFromTray()
     {
-        double added = Math.Min(IcePerUse, PileCapacity - Ice);
+        double added = Math.Min(IcePerUse, PileMax - Ice);
         if (added <= 0)
             return 0;
 
