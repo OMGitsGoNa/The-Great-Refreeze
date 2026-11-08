@@ -92,19 +92,22 @@ public sealed class GameState
     private double _meltTimer;
 
     // Precios: el cubo cuesta 5 $; su primera mejora de capacidad, 1 $.
-    public Upgrade Bucket { get; } = new("Cubo", "Lleva el hielo en la mano (no se derrite)", 5, 1.0, 1);
-    public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad (máximo 50)", 1, 1.6, 4);
+    public Upgrade Bucket { get; } = new("Cubo", "Lleva hielo sin que se derrita", 5, 1.0, 1);
+    public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad (máx. 50)", 1, 1.6, 4);
     public Upgrade Tray { get; } = new("Cubitera grande", "+1 hielo por carga", 1, 1.6);
     public Upgrade Freezer { get; } = new("Congelador", "+0,5 hielo/s al montón", 4, 1.35);
     public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 5, 1.8);
-    public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén el clic para colocar hielo sin parar", 8, 1.0, 1);
+    public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén clic para colocar seguido", 8, 1.0, 1);
     public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 25, 1.0, 1);
-    public Upgrade Ramps { get; } = new("Rampas", "Bajadas del muelle al hielo: sin saltar", 5, 1.0, 1);
-    public Upgrade AutoPlacer { get; } = new("Lanzador de hielo", "Máquina en el centro del muelle: cada 10 s lanza 1 hielo de la mesa al punto libre más cercano", 60, 1.0, 1);
+    public Upgrade Ramps { get; } = new("Rampas", "Bajadas del muelle al hielo", 5, 1.0, 1);
+    public Upgrade AutoPlacer { get; } = new("Lanzador de hielo", "Lanza 1 hielo de la mesa cada 10 s", 60, 1.0, 1);
+
+    // Coste de 10 $ en el nivel 1 y 1000 $ en el nivel 20: crece x1,274 por nivel.
+    public Upgrade LauncherSpeed { get; } = new("Velocidad del lanzador", "Lanza más rápido: 10 s → 0,5 s", 10, Math.Pow(100, 1.0 / 19), 20);
 
     // Mesa: ambas empiezan en 2 $ y suben progresivamente.
-    public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Capacidad x2 (10 → 200)", 2, 1.5, PileSizes.Length - 1);
-    public Upgrade ToughTableUpgrade { get; } = new("Mesa resistente", "El hielo tarda 5 s más en derretirse", 2, 1.5, 5);
+    public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Capacidad x2 (máx. 200)", 2, 1.5, PileSizes.Length - 1);
+    public Upgrade ToughTableUpgrade { get; } = new("Mesa resistente", "+5 s antes de derretirse", 2, 1.5, 5);
 
     public IReadOnlyList<Upgrade> Upgrades { get; }
 
@@ -113,7 +116,7 @@ public sealed class GameState
         Upgrades = new[]
         {
             Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
-            Tray, Freezer, Shovel, AgileHands, Sprint, Ramps, AutoPlacer,
+            Tray, Freezer, Shovel, AgileHands, Sprint, Ramps, AutoPlacer, LauncherSpeed,
         };
     }
 
@@ -121,6 +124,9 @@ public sealed class GameState
     public bool HasAgileHands => AgileHands.Level > 0;
     public bool HasSprint => Sprint.Level > 0;
     public bool HasAutoPlacer => AutoPlacer.Level > 0;
+
+    /// <summary>Segundos entre lanzamientos: 10 s sin mejorar, bajando de forma exponencial hasta 0,5 s en el nivel 20.</summary>
+    public double LaunchSeconds => 10.0 * Math.Pow(0.05, LauncherSpeed.Level / (double)LauncherSpeed.MaxLevel);
 
     /// <summary>Capacidad actual del cubo: 10, 20, 30, 40 o 50.</summary>
     public int BucketMax => BucketBase + BucketStep * BucketCapacityUpgrade.Level;
@@ -340,6 +346,9 @@ public sealed class GameState
             return false;
 
         if (upgrade == BucketCapacityUpgrade && !HasBucket)
+            return false;
+
+        if (upgrade == LauncherSpeed && !HasAutoPlacer)
             return false;
 
         Money -= cost;

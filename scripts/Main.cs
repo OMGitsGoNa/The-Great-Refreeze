@@ -108,6 +108,7 @@ public partial class Main : Node3D
     private static readonly Vector3 LaunchPoint = new(0, 1.3f, 0); // de dónde sale el hielo, encima de la máquina
     private StaticBody3D _launcher;
     private BoxMesh _launchMesh;
+    private readonly HashSet<Vector2I> _inFlight = new(); // celdas a las que ya vuela un hielo
     private double _autoPlaceTimer = AutoPlaceSeconds;
     private int _seed;                  // semilla de las parcelas de peces: se guarda para que la partida sea la misma
     private double _autosaveTimer = AutosaveSeconds;
@@ -401,7 +402,7 @@ public partial class Main : Node3D
         if (_autoPlaceTimer > 0)
             return;
 
-        _autoPlaceTimer = AutoPlaceSeconds;
+        _autoPlaceTimer = _state.LaunchSeconds;
         AutoPlaceNearPlayer();
     }
 
@@ -459,7 +460,7 @@ public partial class Main : Node3D
     private void TryCandidate(Vector2I origin, int dx, int dz, ref bool found, ref float best, ref Vector2I result)
     {
         var cell = new Vector2I(origin.X + dx, origin.Y + dz);
-        if (!_grid.CanPlace(cell))
+        if (!_grid.CanPlace(cell) || _inFlight.Contains(cell))
             return;
 
         float dist = dx * dx + dz * dz;
@@ -499,6 +500,7 @@ public partial class Main : Node3D
             Position = start,
         };
         AddChild(shot);
+        _inFlight.Add(target);
 
         // Vuelo en arco: sube y baja hasta la celda en 1,8 s.
         Tween tween = CreateTween();
@@ -510,6 +512,7 @@ public partial class Main : Node3D
         {
             shot.QueueFree();
             marker.QueueFree();
+            _inFlight.Remove(target);
             if (!PlaceCell(target, quiet: true, fromTable: true))
                 _state.ReturnToPile(); // no se pudo colocar: el hielo vuelve a la mesa
         }));
@@ -901,13 +904,14 @@ public partial class Main : Node3D
         {
             Upgrade u = row.Upgrade;
             bool unlock = u.MaxLevel == 1;
-            bool needsBucket = u == _state.BucketCapacityUpgrade && !_state.HasBucket;
+            bool needsLauncher = u == _state.LauncherSpeed && !_state.HasAutoPlacer;
+            bool needsBucket = (u == _state.BucketCapacityUpgrade && !_state.HasBucket) || needsLauncher;
 
             string status = unlock
                 ? (u.IsMaxed ? "desbloqueado" : "bloqueado")
                 : $"nivel {u.Level}";
             if (needsBucket)
-                status = "requiere el cubo";
+                status = needsLauncher ? "requiere el lanzador" : "requiere el cubo";
             row.Info.Text = $"{u.Name}  ({status})\n{u.Description}";
 
             if (u.IsMaxed)
@@ -946,7 +950,11 @@ public partial class Main : Node3D
         foreach (Upgrade upgrade in _state.Upgrades)
         {
             var row = new HBoxContainer { CustomMinimumSize = new Vector2(460, 0) };
-            var info = new Label { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+            var info = new Label
+            {
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart, // si un texto aún es largo, salta de línea
+            };
             var button = new Button { CustomMinimumSize = new Vector2(220, 0) };
             button.Pressed += () => BuyUpgrade(upgrade);
 
