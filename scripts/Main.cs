@@ -1305,7 +1305,9 @@ public partial class Main : Node3D
         if (_aimValid)
         {
             _ghost.Position = IceGrid.CellCenter(_aimCell) + new Vector3(0f, -IceGrid.VisualSize.Y / 2f, 0f);
-            _ghostMaterial.AlbedoColor = new Color(0.3f, 1f, 0.4f, 0.45f);
+            // La sombra late suavemente para que se vea dónde caerá el hielo.
+            float pulse = 0.5f + 0.5f * Mathf.Sin((float)Time.GetTicksMsec() / 180f);
+            _ghostMaterial.AlbedoColor = new Color(0.3f, 1f, 0.4f, 0.3f + 0.2f * pulse);
         }
     }
 
@@ -1333,7 +1335,7 @@ public partial class Main : Node3D
     }
 
     /// <summary>
-    /// Busca entre las 8 celdas que rodean a la que miras la más cercana al punto mirado que se pueda colocar.
+    /// Busca en un cuadrado de 5 x 5 celdas alrededor de la que miras la más cercana al punto mirado que se pueda colocar.
     /// Así, al correr, el hielo sale aunque el cursor caiga en una celda que no sirve.
     /// </summary>
     private bool FindPlaceableCell(Vector3 hit)
@@ -1342,8 +1344,8 @@ public partial class Main : Node3D
         bool found = false;
         float best = float.MaxValue;
 
-        for (int dx = -1; dx <= 1; dx++)
-            for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -2; dx <= 2; dx++)
+            for (int dz = -2; dz <= 2; dz++)
             {
                 if (dx == 0 && dz == 0)
                     continue;
