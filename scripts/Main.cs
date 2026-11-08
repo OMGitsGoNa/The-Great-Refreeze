@@ -103,6 +103,12 @@ public partial class Main : Node3D
     private bool _bearRescued;
 
     private const double AutosaveSeconds = 30;
+    private const double AutoPlaceSeconds = 10.0;  // cada cuánto lanza la máquina un hielo de la mesa
+    private const int MaxLaunchRadius = 600;       // hasta dónde busca la máquina un punto libre (en celdas)
+    private static readonly Vector3 LaunchPoint = new(0, 1.3f, 0); // de dónde sale el hielo, encima de la máquina
+    private StaticBody3D _launcher;
+    private BoxMesh _launchMesh;
+    private double _autoPlaceTimer = AutoPlaceSeconds;
     private int _seed;                  // semilla de las parcelas de peces: se guarda para que la partida sea la misma
     private double _autosaveTimer = AutosaveSeconds;
     private bool _resetting;            // al empezar de cero no se vuelve a guardar
@@ -180,6 +186,7 @@ public partial class Main : Node3D
         {
             UpdateAim();
             UpdateCharge(delta);
+            UpdateAutoPlace(delta);
 
             bool holding = Input.MouseMode == Input.MouseModeEnum.Captured
                            && Input.IsMouseButtonPressed(MouseButton.Left);
@@ -337,17 +344,30 @@ public partial class Main : Node3D
                 : "No llevas hielo: coge uno de la mesa con E");
             return;
         }
-        if (!_grid.Place(_aimCell))
+        PlaceCell(_aimCell, quiet);
+    }
+
+    /// <summary>
+    /// Pone un cubo en la celda: gasta hielo, da peces, bono de sector y efectos.
+    /// Lo usan el clic, Manos ágiles y el colocador automático. Devuelve false si no se pudo.
+    /// </summary>
+    private bool PlaceCell(Vector2I cell, bool quiet, bool fromTable = false)
+    {
+        if (!_grid.Place(cell))
         {
             if (!quiet) ShowMessage("No puedes colocar hielo aquí");
-            return;
+            return false;
         }
 
-        _state.TryPlaceCube(_bucketCarried);
+        // El hielo sale de tu mano o cubo, salvo el del lanzador, que ya salió de la mesa al lanzarlo.
+        if (fromTable)
+            _state.CountPlaced();
+        else
+            _state.TryPlaceCube(_bucketCarried);
 
         // Al completar un sector: bono que crece con el anillo. Las parcelas de peces dan además 1 pez por celda.
-        Vector3 at = IceGrid.CellCenter(_aimCell) + new Vector3(0f, 0.3f, 0f);
-        Sector done = _sectors.RecordPlaced(_aimCell);
+        Vector3 at = IceGrid.CellCenter(cell) + new Vector3(0f, 0.3f, 0f);
+        Sector done = _sectors.RecordPlaced(cell);
         if (done != null)
         {
             double bonus = _state.SectorBonusFor(done.Ring) + (done.IsFish ? done.Free : 0);
@@ -368,6 +388,167 @@ public partial class Main : Node3D
                 SpawnBurst(at, new Color(0.9f, 0.97f, 1f), 12);
             }
         }
+        return true;
+    }
+
+    /// <summary>Con el colocador automático, pone un cubo cada segundo (si llevas hielo).</summary>
+    private void UpdateAutoPlace(double delta)
+    {
+        if (!_state.HasAutoPlacer)
+            return;
+
+        _autoPlaceTimer -= delta;
+        if (_autoPlaceTimer > 0)
+            return;
+
+        _autoPlaceTimer = AutoPlaceSeconds;
+        AutoPlaceNearPlayer();
+    }
+
+    /// <summary>
+    /// La máquina lanza un hielo al punto libre más cercano a ella (el centro del muelle).
+    /// Coge el hielo directamente de la mesa; si la mesa está vacía, espera.
+    /// </summary>
+    private void AutoPlaceNearPlayer()
+    {
+        if (_launcher == null || _state.IceCubes <= 0)
+            return;
+
+        Vector2I origin = IceGrid.WorldToCell(_launcher.Position);
+        if (!FindNearestFreeCell(origin, out Vector2I target))
+            return;
+
+        if (!_state.TakeOneFromPile())
+            return;
+
+        LaunchIce(target);
+    }
+
+    /// <summary>
+    /// Busca la celda libre más cercana al origen, revisando anillos cuadrados de radio creciente.
+    /// Se para en el primer anillo que tenga una celda libre (es casi el punto más cercano y muy rápido).
+    /// </summary>
+    private bool FindNearestFreeCell(Vector2I origin, out Vector2I result)
+    {
+        for (int r = 1; r <= MaxLaunchRadius; r++)
+        {
+            bool found = false;
+            float best = float.MaxValue;
+            result = origin;
+
+            // Solo las celdas del borde del cuadrado de radio r.
+            for (int d = -r; d <= r; d++)
+            {
+                TryCandidate(origin, d, -r, ref found, ref best, ref result);
+                TryCandidate(origin, d, r, ref found, ref best, ref result);
+                if (d > -r && d < r)
+                {
+                    TryCandidate(origin, -r, d, ref found, ref best, ref result);
+                    TryCandidate(origin, r, d, ref found, ref best, ref result);
+                }
+            }
+
+            if (found)
+                return true;
+        }
+
+        result = origin;
+        return false;
+    }
+
+    private void TryCandidate(Vector2I origin, int dx, int dz, ref bool found, ref float best, ref Vector2I result)
+    {
+        var cell = new Vector2I(origin.X + dx, origin.Y + dz);
+        if (!_grid.CanPlace(cell))
+            return;
+
+        float dist = dx * dx + dz * dz;
+        if (dist < best)
+        {
+            best = dist;
+            result = cell;
+            found = true;
+        }
+    }
+
+    /// <summary>Lanza un cubo de hielo desde la máquina hasta la celda; al llegar se coloca de verdad.</summary>
+    private void LaunchIce(Vector2I target)
+    {
+        Vector3 start = LaunchPoint;
+        // El cubo visible tiene el centro medio cubo por debajo de la superficie, igual que al colocarlo.
+        Vector3 end = IceGrid.CellCenter(target) + new Vector3(0f, -IceGrid.IceCubeSize / 2f, 0f);
+
+        // Marca verde en la celda de destino hasta que el hielo aterriza.
+        var marker = new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(IceGrid.CellSize, 0.02f, IceGrid.CellSize) },
+            MaterialOverride = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                AlbedoColor = new Color(0.3f, 1f, 0.4f, 0.45f),
+            },
+            Position = IceGrid.CellCenter(target) + new Vector3(0f, 0.02f, 0f),
+        };
+        AddChild(marker);
+
+        var shot = new MeshInstance3D
+        {
+            Mesh = _launchMesh,
+            MaterialOverride = Mat(IceColor),
+            Position = start,
+        };
+        AddChild(shot);
+
+        // Vuelo en arco: sube y baja hasta la celda en 1,8 s.
+        Tween tween = CreateTween();
+        tween.TweenMethod(Callable.From<float>(t =>
+        {
+            shot.Position = start.Lerp(end, t) + Vector3.Up * (Mathf.Sin(t * Mathf.Pi) * 2.5f);
+        }), 0f, 1f, 1.8);
+        tween.TweenCallback(Callable.From(() =>
+        {
+            shot.QueueFree();
+            marker.QueueFree();
+            if (!PlaceCell(target, quiet: true, fromTable: true))
+                _state.ReturnToPile(); // no se pudo colocar: el hielo vuelve a la mesa
+        }));
+    }
+
+    /// <summary>Máquina lanzadora en el centro del muelle. Aparece al comprar el colocador automático.</summary>
+    private void BuildLauncher()
+    {
+        if (_launcher != null)
+            return;
+
+        _launchMesh = new BoxMesh { Size = IceGrid.VisualSize };
+        _launcher = new StaticBody3D { Position = Vector3.Zero };
+        _launcher.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(1.2f, 1.0f, 1.2f) },
+            MaterialOverride = Mat(new Color(0.35f, 0.45f, 0.55f)),
+            Position = new Vector3(0, 0.5f, 0),
+        });
+        _launcher.AddChild(new CollisionShape3D
+        {
+            Shape = new BoxShape3D { Size = new Vector3(1.2f, 1.0f, 1.2f) },
+            Position = new Vector3(0, 0.5f, 0),
+        });
+        _launcher.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(0.4f, 0.4f, 0.8f) },
+            MaterialOverride = Mat(new Color(0.2f, 0.25f, 0.3f)),
+            Position = new Vector3(0, 1.15f, 0),
+        });
+        _launcher.AddChild(new Label3D
+        {
+            Text = "Lanzador de hielo",
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            FontSize = 64,
+            PixelSize = 0.005f,
+            Position = new Vector3(0, 2.0f, 0),
+        });
+        AddChild(_launcher);
     }
 
     /// <summary>Reproduce un sonido una vez y lo borra al terminar.</summary>
@@ -641,6 +822,9 @@ public partial class Main : Node3D
         if (_state.Ramps.Level > 0)
             BuildRamps();
 
+        if (_state.HasAutoPlacer)
+            BuildLauncher();
+
         if (_state.HasBucket)
         {
             _bucket.Visible = true;
@@ -692,6 +876,8 @@ public partial class Main : Node3D
         bool bought = _state.TryBuy(upgrade);
         if (bought && upgrade == _state.Ramps)
             BuildRampsPurchased();
+        if (bought && upgrade == _state.AutoPlacer)
+            BuildLauncher();
 
         if (bought && upgrade == _state.Bucket)
         {

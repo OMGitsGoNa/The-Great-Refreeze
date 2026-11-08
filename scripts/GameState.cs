@@ -100,6 +100,7 @@ public sealed class GameState
     public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén el clic para colocar hielo sin parar", 8, 1.0, 1);
     public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 25, 1.0, 1);
     public Upgrade Ramps { get; } = new("Rampas", "Bajadas del muelle al hielo: sin saltar", 5, 1.0, 1);
+    public Upgrade AutoPlacer { get; } = new("Lanzador de hielo", "Máquina en el centro del muelle: cada 10 s lanza 1 hielo de la mesa al punto libre más cercano", 60, 1.0, 1);
 
     // Mesa: ambas empiezan en 2 $ y suben progresivamente.
     public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Capacidad x2 (10 → 200)", 2, 1.5, PileSizes.Length - 1);
@@ -112,13 +113,14 @@ public sealed class GameState
         Upgrades = new[]
         {
             Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
-            Tray, Freezer, Shovel, AgileHands, Sprint, Ramps,
+            Tray, Freezer, Shovel, AgileHands, Sprint, Ramps, AutoPlacer,
         };
     }
 
     public bool HasBucket => Bucket.Level > 0;
     public bool HasAgileHands => AgileHands.Level > 0;
     public bool HasSprint => Sprint.Level > 0;
+    public bool HasAutoPlacer => AutoPlacer.Level > 0;
 
     /// <summary>Capacidad actual del cubo: 10, 20, 30, 40 o 50.</summary>
     public int BucketMax => BucketBase + BucketStep * BucketCapacityUpgrade.Level;
@@ -234,10 +236,29 @@ public sealed class GameState
         else
             HandIce -= 1;
 
-        PlacedCubes++;
-        Fish += FishPerCube;
+        CountPlaced();
         return true;
     }
+
+    /// <summary>Cuenta un cubo colocado y salva sus peces. Lo usan los cubos de la mano, del cubo y del lanzador.</summary>
+    public void CountPlaced()
+    {
+        PlacedCubes++;
+        Fish += FishPerCube;
+    }
+
+    /// <summary>El lanzador toma 1 hielo del montón (sin pasar por la mano). Devuelve false si la mesa está vacía.</summary>
+    public bool TakeOneFromPile()
+    {
+        if (IceCubes <= 0)
+            return false;
+
+        Ice -= 1;
+        return true;
+    }
+
+    /// <summary>Devuelve 1 hielo al montón (por ejemplo, si el lanzador no pudo colocarlo).</summary>
+    public void ReturnToPile() => Ice = Math.Min(PileMax, Ice + 1);
 
     /// <summary>Añade dinero directamente (lo usa el modo dev y no el juego normal).</summary>
     public void AddMoney(double amount) => Money += amount;
@@ -302,9 +323,10 @@ public sealed class GameState
         PlacedCubes = data.PlacedCubes;
         _meltTimer = data.MeltTimer;
 
-        if (data.UpgradeLevels.Length == Upgrades.Count)
-            for (int i = 0; i < Upgrades.Count; i++)
-                Upgrades[i].Level = data.UpgradeLevels[i];
+        // Las mejoras nuevas (al final de la lista) no están en partidas antiguas: se quedan en nivel 0.
+        int count = Math.Min(data.UpgradeLevels.Length, Upgrades.Count);
+        for (int i = 0; i < count; i++)
+            Upgrades[i].Level = data.UpgradeLevels[i];
     }
 
     /// <summary>
