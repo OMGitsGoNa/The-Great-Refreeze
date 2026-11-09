@@ -1134,10 +1134,6 @@ public partial class Main : Node3D
             _menuRows.Add(new UpgradeRow(upgrade, info, button));
         }
 
-        var reset = new Button { Text = "Nueva partida (borra el guardado)" };
-        reset.Pressed += StartNewGame;
-        box.AddChild(reset);
-
         var close = new Button { Text = "Cerrar (E / Esc)" };
         close.Pressed += CloseMenu;
         box.AddChild(close);
@@ -1768,12 +1764,13 @@ public partial class Main : Node3D
 
         BuildMenu(hud);
 
-        // Escarcha: se va cubriendo la pantalla mientras estás bajo el agua. Va antes del fundido.
+        // Escarcha: un velo que entra desde los bordes mientras estás bajo el agua (shader). Va antes del fundido.
         _frost = new ColorRect
         {
-            Color = new Color(0.75f, 0.92f, 1f),
-            Modulate = new Color(1f, 1f, 1f, 0f),
+            Color = new Color(1f, 1f, 1f),
             MouseFilter = Control.MouseFilterEnum.Ignore,
+            Visible = false,
+            Material = new ShaderMaterial { Shader = new Shader { Code = FrostShader } },
         };
         hud.AddChild(_frost);
         _frost.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -1877,6 +1874,65 @@ public partial class Main : Node3D
         _player.Camera.AddChild(_flashlight);
     }
 
+    // Escarcha: el velo entra desde los bordes y sube con el tiempo bajo el agua.
+    private float _frostShown;  // intensidad que se ve (sube y baja poco a poco)
+    private int _frostStage;    // 0, 1 o 2: para sonar un crujido al subir de nivel
+
+    private const string FrostShader = @"
+shader_type canvas_item;
+uniform float amount : hint_range(0.0, 1.0) = 0.0;
+uniform float time_s = 0.0;
+
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+void fragment() {
+    vec2 d = abs(UV - 0.5) * 2.0;
+    float edge = max(d.x, d.y);
+    float n = noise(UV * 12.0 + vec2(time_s * 0.02, 0.0)) * 0.6 + noise(UV * 30.0) * 0.4;
+    float threshold = 1.0 - amount * 1.3;
+    float mask = smoothstep(threshold - 0.06, threshold + 0.06, edge + (n - 0.5) * 0.35);
+    float crystal = smoothstep(0.62, 0.8, n) * mask;
+    vec3 col = mix(vec3(0.7, 0.88, 1.0), vec3(1.0), crystal);
+    COLOR = vec4(col, mask * (0.3 + 0.45 * amount));
+}
+";
+
+    private void UpdateFrost(double delta)
+    {
+        float target = _player.SubmergedTime > 0
+            ? Mathf.Clamp((float)(_player.SubmergedTime / Player.DrownSeconds), 0f, 1f)
+            : 0f;
+
+        // Sube con el tiempo bajo el agua y baja más despacio al salir, para que no desaparezca de golpe.
+        _frostShown = Mathf.MoveToward(_frostShown, target, (float)delta * (target > _frostShown ? 0.5f : 0.35f));
+
+        // Crujido al pasar de 1/3 y de 2/3.
+        int stage = _frostShown >= 0.66f ? 2 : _frostShown >= 0.33f ? 1 : 0;
+        if (stage > _frostStage)
+            PlaySound(_crackSound, -6);
+        _frostStage = stage;
+
+        _frost.Visible = _frostShown > 0.001f;
+        if (_frost.Visible)
+        {
+            var mat = (ShaderMaterial)_frost.Material;
+            mat.SetShaderParameter("amount", _frostShown);
+            mat.SetShaderParameter("time_s", Time.GetTicksMsec() / 1000f);
+        }
+
+        _warnLabel.Modulate = _frostShown > 0.66f ? new Color(1f, 0.6f, 0.6f) : new Color(0.85f, 0.95f, 1f);
+    }
+
     private void UpdateHud(double delta)
     {
         RefreshPile();
@@ -1904,8 +1960,7 @@ public partial class Main : Node3D
               + (here.Completed ? "  ✓" : "");
 
         // Congelamiento: cuanto más tiempo bajo el agua, más escarcha cubre la pantalla.
-        float frost = _player.SubmergedTime > 0 ? (float)(_player.SubmergedTime / Player.DrownSeconds) : 0f;
-        _frost.Modulate = new Color(1f, 1f, 1f, Mathf.Clamp(frost, 0f, 1f) * 0.65f);
+        UpdateFrost(delta);
 
         _warnLabel.Text = _player.SubmergedTime > 0
             ? $"¡Te estás congelando! Sal del agua: {Math.Max(0, Player.DrownSeconds - _player.SubmergedTime):0.0} s"
