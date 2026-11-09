@@ -47,11 +47,19 @@ public partial class IceGrid : Node3D
     /// <summary>Profundidad extra de los costados que dan al agua: así se ven marcados.</summary>
     private const float SideDepth = 1.2f;
 
+    /// <summary>Cuánto baja la base plana bajo la forma de arriba (lo que queda libre alrededor de triángulos y hexágonos).</summary>
+    private const float UnderDepth = 0.3f;
+
+    /// <summary>Formas posibles de un hielo colocado. Cada una sale con la misma probabilidad.</summary>
+    public const int ShapeSquare = 0, ShapeTriangle = 1, ShapeHexagon = 2, ShapePentagon = 3, ShapeOctagon = 4,
+        ShapeDiamond = 5, ShapeRectangle = 6, ShapeTriangleEq = 7, ShapeCount = 8;
+
     private static readonly Vector2I[] Neighbors = { Vector2I.Right, Vector2I.Left, Vector2I.Up, Vector2I.Down };
 
     private readonly HashSet<Vector2I> _occupied = new();
     private readonly HashSet<Vector2I> _dock = new(); // celdas fijas (muelle, plataformas): no cuentan como cubos
     private readonly Dictionary<Vector2I, int> _levels = new(); // altura de cada hielo visible (0 = plano)
+    private readonly Dictionary<Vector2I, int> _shapes = new(); // forma de cada hielo: ShapeSquare, ShapeTriangle o ShapeHexagon
     private readonly HashSet<Vector2I> _dirty = new(); // zonas que hay que reconstruir en este fotograma
     private readonly Dictionary<Vector2I, StaticBody3D> _chunks = new();
     private readonly Random _rng = new(4242);
@@ -86,9 +94,9 @@ public partial class IceGrid : Node3D
     /// <summary>Celdas con hielo puesto por el jugador (sin muelle ni plataformas fijas), para guardar la partida.</summary>
     public IEnumerable<Vector2I> PlacedCells => _occupied.Where(c => !_dock.Contains(c));
 
-    /// <summary>Celdas puestas por el jugador con su altura, para guardar la partida.</summary>
-    public IEnumerable<(Vector2I Cell, int Level)> PlacedLevels =>
-        PlacedCells.Select(c => (c, _levels.GetValueOrDefault(c)));
+    /// <summary>Celdas puestas por el jugador con su altura y forma, para guardar la partida.</summary>
+    public IEnumerable<(Vector2I Cell, int Level, int Shape)> PlacedLevels =>
+        PlacedCells.Select(c => (c, _levels.GetValueOrDefault(c), _shapes.GetValueOrDefault(c)));
 
     /// <summary>Marca una celda del muelle como ocupada sin crear hielo.</summary>
     public void MarkOccupied(Vector2I cell)
@@ -124,7 +132,7 @@ public partial class IceGrid : Node3D
     {
         _occupied.Add(cell);
         _dock.Add(cell);
-        AddCube(cell, 0);
+        AddCube(cell, 0, ShapeSquare);
     }
 
     /// <summary>Crea un cubo de hielo en la celda. La altura depende de los vecinos. Devuelve false si no se puede.</summary>
@@ -134,7 +142,7 @@ public partial class IceGrid : Node3D
             return false;
 
         _occupied.Add(cell);
-        AddCube(cell, ChooseLevel(cell));
+        AddCube(cell, ChooseLevel(cell), RandomShape());
         return true;
     }
 
@@ -145,14 +153,14 @@ public partial class IceGrid : Node3D
     public void PlaceForced(Vector2I cell)
     {
         _occupied.Add(cell);
-        AddCube(cell, 0);
+        AddCube(cell, 0, RandomShape());
     }
 
     /// <summary>Restaura un hielo con su altura exacta al cargar una partida.</summary>
-    public void PlaceWithLevel(Vector2I cell, int level)
+    public void PlaceWithLevel(Vector2I cell, int level, int shape)
     {
         _occupied.Add(cell);
-        AddCube(cell, Math.Clamp(level, 0, MaxLevel));
+        AddCube(cell, Math.Clamp(level, 0, MaxLevel), Math.Clamp(shape, ShapeSquare, ShapeCount - 1));
     }
 
     /// <summary>
@@ -174,9 +182,10 @@ public partial class IceGrid : Node3D
     }
 
     /// <summary>Añade el hielo de la celda con su altura y marca las zonas alrededor para reconstruirlas.</summary>
-    private void AddCube(Vector2I cell, int level)
+    private void AddCube(Vector2I cell, int level, int shape)
     {
         _levels[cell] = level;
+        _shapes[cell] = shape;
 
         // La altura de la celda afecta a las esquinas compartidas con las 8 celdas de alrededor.
         for (int dx = -1; dx <= 1; dx++)
@@ -236,12 +245,16 @@ public partial class IceGrid : Node3D
     {
         int x = cell.X;
         int z = cell.Y;
-        Vector3 nw = Corner(x, z);
-        Vector3 ne = Corner(x + 1, z);
-        Vector3 se = Corner(x + 1, z + 1);
-        Vector3 sw = Corner(x, z + 1);
+        Vector3 topNw = Corner(x, z);
+        Vector3 topNe = Corner(x + 1, z);
+        Vector3 topSe = Corner(x + 1, z + 1);
+        Vector3 topSw = Corner(x, z + 1);
 
+        // Base plana del cuadrado completo: no deja huecos aunque la forma de arriba no lo cubra.
+        Vector3 nw = Under(topNw), ne = Under(topNe), se = Under(topSe), sw = Under(topSw);
         AddQuad(st, nw, ne, se, sw, Vector3.Up);
+
+        AddShapeTop(st, cell, topNw, topNe, topSe, topSw);
 
         // Costados libres: bajan hasta bastante por debajo del agua, así se ven marcados.
         if (!_levels.ContainsKey(new Vector2I(x, z - 1)))
@@ -267,6 +280,172 @@ public partial class IceGrid : Node3D
     }
 
     private int LevelAt(Vector2I cell) => _levels.TryGetValue(cell, out int l) ? l : 0;
+
+    /// <summary>Forma al azar: todas las formas tienen la misma probabilidad.</summary>
+    private int RandomShape() => _rng.Next(ShapeCount);
+
+    private static Vector3 Under(Vector3 p) => new(p.X, p.Y - UnderDepth, p.Z);
+
+    /// <summary>
+    /// Dibuja la forma de arriba de la celda (cuadrado, triángulo o hexágono) sobre la base, con sus paredes.
+    /// La altura de cada punto sale de interpolar las 4 esquinas, así encaja con las celdas vecinas.
+    /// </summary>
+    private void AddShapeTop(SurfaceTool st, Vector2I cell, Vector3 nw, Vector3 ne, Vector3 se, Vector3 sw)
+    {
+        // Los lados que dan a otro hielo se estiran hasta el borde completo de la celda: así encaja con el vecino.
+        Vector2[] outline = ConvexHull(ShapeOutline(_shapes.GetValueOrDefault(cell), cell).Concat(SideCorners(cell)).ToList());
+
+        var top = new Vector3[outline.Length];
+        var bottom = new Vector3[outline.Length];
+        for (int i = 0; i < outline.Length; i++)
+        {
+            float u = outline[i].X;
+            float v = outline[i].Y;
+            float y = Mathf.Lerp(Mathf.Lerp(nw.Y, ne.Y, u), Mathf.Lerp(sw.Y, se.Y, u), v);
+            float wx = (cell.X + u) * CellSize;
+            float wz = (cell.Y + v) * CellSize;
+            top[i] = new Vector3(wx, y, wz);
+            bottom[i] = new Vector3(wx, y - UnderDepth, wz);
+        }
+
+        // Tapa: abanico desde el primer punto (todas las formas son convexas).
+        for (int i = 1; i < top.Length - 1; i++)
+            AddTriangle(st, top[0], top[i], top[i + 1], Vector3.Up);
+
+        // Paredes desde la forma hasta la base. Miran hacia fuera de la forma.
+        Vector2 centroid = Vector2.Zero;
+        foreach (Vector2 p in outline)
+            centroid += p;
+        centroid /= outline.Length;
+
+        for (int i = 0; i < outline.Length; i++)
+        {
+            int j = (i + 1) % outline.Length;
+            Vector2 e = outline[j] - outline[i];
+            Vector2 n = new Vector2(e.Y, -e.X);
+            Vector2 mid = (outline[i] + outline[j]) / 2f;
+            if (n.Dot(mid - centroid) < 0)
+                n = -n;
+            Vector3 outward = new Vector3(n.X, 0, n.Y).Normalized();
+            AddQuad(st, top[i], top[j], bottom[j], bottom[i], outward);
+        }
+    }
+
+    /// <summary>Polígono regular de lados iguales, centrado en la celda y girado <paramref name="angle"/> radianes.</summary>
+    private static Vector2[] RegularPolygon(int sides, float angle)
+    {
+        var points = new Vector2[sides];
+        for (int i = 0; i < sides; i++)
+        {
+            float a = angle + 2f * Mathf.Pi * i / sides;
+            points[i] = new Vector2(0.5f + 0.5f * Mathf.Cos(a), 0.5f + 0.5f * Mathf.Sin(a));
+        }
+        return points;
+    }
+
+    /// <summary>Gira puntos (desplazados desde el centro de la celda) y los devuelve en coordenadas de la celda.</summary>
+    private static Vector2[] Rotate(Vector2[] offsets, float angle)
+    {
+        float c = Mathf.Cos(angle);
+        float s = Mathf.Sin(angle);
+        var result = new Vector2[offsets.Length];
+        for (int i = 0; i < offsets.Length; i++)
+            result[i] = new Vector2(0.5f + offsets[i].X * c - offsets[i].Y * s, 0.5f + offsets[i].X * s + offsets[i].Y * c);
+        return result;
+    }
+
+    /// <summary>Giro fijo para cada celda (siempre el mismo en una partida cargada).</summary>
+    private static float Rot(Vector2I cell) => (CellHash(cell) % 360u) * Mathf.Pi / 180f;
+
+    /// <summary>Esquinas de los lados de la celda que dan a otro hielo.</summary>
+    private IEnumerable<Vector2> SideCorners(Vector2I cell)
+    {
+        if (_levels.ContainsKey(cell + Vector2I.Up))
+        {
+            yield return new Vector2(0, 0);
+            yield return new Vector2(1, 0);
+        }
+        if (_levels.ContainsKey(cell + Vector2I.Down))
+        {
+            yield return new Vector2(0, 1);
+            yield return new Vector2(1, 1);
+        }
+        if (_levels.ContainsKey(cell + Vector2I.Left))
+        {
+            yield return new Vector2(0, 0);
+            yield return new Vector2(0, 1);
+        }
+        if (_levels.ContainsKey(cell + Vector2I.Right))
+        {
+            yield return new Vector2(1, 0);
+            yield return new Vector2(1, 1);
+        }
+    }
+
+    /// <summary>Envolvente convexa (cadena monótona). Todas las formas son convexas, así que el resultado también.</summary>
+    private static Vector2[] ConvexHull(List<Vector2> points)
+    {
+        points = points.Distinct().OrderBy(p => p.X).ThenBy(p => p.Y).ToList();
+        if (points.Count < 3)
+            return points.ToArray();
+
+        var hull = new List<Vector2>();
+        foreach (Vector2 p in points)
+        {
+            while (hull.Count >= 2 && Cross(hull[^2], hull[^1], p) <= 0)
+                hull.RemoveAt(hull.Count - 1);
+            hull.Add(p);
+        }
+
+        int lower = hull.Count + 1;
+        for (int i = points.Count - 2; i >= 0; i--)
+        {
+            Vector2 p = points[i];
+            while (hull.Count >= lower && Cross(hull[^2], hull[^1], p) <= 0)
+                hull.RemoveAt(hull.Count - 1);
+            hull.Add(p);
+        }
+
+        hull.RemoveAt(hull.Count - 1);
+        return hull.ToArray();
+    }
+
+    private static float Cross(Vector2 o, Vector2 a, Vector2 b) => (a.X - o.X) * (b.Y - o.Y) - (a.Y - o.Y) * (b.X - o.X);
+
+    /// <summary>Contorno de la forma dentro de la celda, con coordenadas de 0 a 1.</summary>
+    private static Vector2[] ShapeOutline(int shape, Vector2I cell)
+    {
+        var corners = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) };
+        switch (shape)
+        {
+            case ShapeTriangle:
+            {
+                // Medio cuadrado. El ángulo recto cae en una esquina que depende de la posición de la celda.
+                int k = (int)(CellHash(cell) % 4u);
+                return new[] { corners[k], corners[(k + 1) % 4], corners[(k + 3) % 4] };
+            }
+            // Polígonos regulares de radio 0,5 girados al azar: nunca salen de la celda.
+            case ShapeHexagon:
+                return RegularPolygon(6, Rot(cell));
+            case ShapePentagon:
+                return RegularPolygon(5, Rot(cell));
+            case ShapeOctagon:
+                return RegularPolygon(8, Rot(cell));
+            case ShapeTriangleEq:
+                return RegularPolygon(3, Rot(cell));
+            case ShapeDiamond:
+                return RegularPolygon(4, Rot(cell) + Mathf.Pi / 4f);
+            case ShapeRectangle:
+                // Rectángulo alargado: sus esquinas quedan dentro del círculo de radio 0,5.
+                return Rotate(new[]
+                {
+                    new Vector2(-0.42f, -0.18f), new Vector2(0.42f, -0.18f),
+                    new Vector2(0.42f, 0.18f), new Vector2(-0.42f, 0.18f),
+                }, Rot(cell));
+            default:
+                return corners;
+        }
+    }
 
     /// <summary>
     /// Punto de la base del costado libre en la esquina (x, z). La profundidad varía por esquina
