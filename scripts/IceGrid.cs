@@ -6,8 +6,9 @@ using Godot;
 namespace GreatRefreeze;
 
 /// <summary>
-/// Rejilla de celdas cuadradas sobre el agua. Guarda qué celdas están ocupadas (muelle, plataforma o hielo)
-/// y crea los cubos de hielo, que son sólidos: el jugador puede caminar por encima.
+/// Rejilla de celdas cuadradas sobre el agua. Guarda qué celdas están ocupadas (muelle, plataforma o hielo).
+/// El hielo se dibuja por zonas de 16 x 16 celdas: cada zona es una sola malla con su colisión, y las caras
+/// que dan a otro hielo no se dibujan, así que los hielos vecinos forman un bloque continuo.
 /// La celda (x, z) cubre el mundo desde (x * CellSize, z * CellSize) hasta (x + 1, z + 1) * CellSize.
 /// Los sectores (anillos alrededor del muelle) están en SectorMap.
 /// </summary>
@@ -27,32 +28,36 @@ public partial class IceGrid : Node3D
     /// <summary>Tamaño visual de un cubo (también lo usa la sombra de previsualización).</summary>
     public static readonly Vector3 VisualSize = new(IceCubeSize, IceCubeSize, IceCubeSize);
 
+    /// <summary>Lado de una zona de hielo, en celdas. Cada zona es una malla y una colisión.</summary>
+    private const int ChunkSize = 16;
+
+    /// <summary>Cuánto puede subir o bajar la superficie, para que no sea plana.</summary>
+    private const float Bumpiness = 0.03f;
+
     private static readonly Vector2I[] Neighbors = { Vector2I.Right, Vector2I.Left, Vector2I.Up, Vector2I.Down };
 
     private readonly HashSet<Vector2I> _occupied = new();
     private readonly HashSet<Vector2I> _dock = new(); // celdas fijas (muelle, plataformas): no cuentan como cubos
-
-    /// <summary>Formas distintas de hielo. Se comparten entre cubos para no gastar memoria.</summary>
-    private const int VariantCount = 12;
-
-    private (ArrayMesh Mesh, ConvexPolygonShape3D Shape)[] _variants;
+    private readonly HashSet<Vector2I> _ice = new(); // celdas con hielo visible (incluye plataforma del oso y rampas)
+    private readonly HashSet<Vector2I> _dirty = new(); // zonas que hay que reconstruir en este fotograma
+    private readonly Dictionary<Vector2I, StaticBody3D> _chunks = new();
     private StandardMaterial3D _material;
 
     public override void _Ready()
     {
-        // Hielo algo más sólido: azul más saturado y superficie poco brillante, para que no parezca transparente.
-        _material = new StandardMaterial3D
-        {
-            AlbedoColor = new Color(0.6f, 0.82f, 0.96f),
-            Roughness = 0.35f,
-            Metallic = 0f,
-        };
+        // Mismo material que el hielo de la mesa (solo color, sin brillo ni metal).
+        _material = new StandardMaterial3D { AlbedoColor = new Color(0.6f, 0.82f, 0.96f) };
+    }
 
-        // Semilla fija: las formas son las mismas en todas las partidas.
-        var rng = new Random(12345);
-        _variants = new (ArrayMesh, ConvexPolygonShape3D)[VariantCount];
-        for (int i = 0; i < VariantCount; i++)
-            _variants[i] = BuildVariant(rng);
+    /// <summary>Reconstruye las zonas que han cambiado. Así varios cubos en un mismo fotograma cuestan una sola vez.</summary>
+    public override void _Process(double delta)
+    {
+        if (_dirty.Count == 0)
+            return;
+
+        foreach (Vector2I chunk in _dirty)
+            RebuildChunk(chunk);
+        _dirty.Clear();
     }
 
     public static Vector2I WorldToCell(Vector3 point) =>
@@ -125,70 +130,115 @@ public partial class IceGrid : Node3D
         AddCube(cell);
     }
 
+    /// <summary>Añade el hielo de la celda y marca su zona y las vecinas de otra zona para reconstruirlas.</summary>
     private void AddCube(Vector2I cell)
     {
-        // Cada celda tiene siempre la misma forma y el mismo giro, así no cambia al guardar y cargar.
-        uint h = CellHash(cell);
-        var variant = _variants[h % (uint)VariantCount];
-        float yaw = (h >> 8 & 0xFFFF) / 65535f * 360f;
+        _ice.Add(cell);
+        Vector2I chunk = ChunkOf(cell);
+        _dirty.Add(chunk);
 
-        // El cuerpo está en el centro del cubo; su cara de arriba queda en SurfaceY.
-        var cube = new StaticBody3D
+        // Un vecino de otra zona cambia sus costados, así que también se reconstruye.
+        foreach (Vector2I d in Neighbors)
         {
-            Position = CellCenter(cell) + new Vector3(0f, -IceCubeSize / 2f, 0f),
-            RotationDegrees = new Vector3(0f, yaw, 0f),
-        };
-        cube.AddChild(new MeshInstance3D { Mesh = variant.Mesh, MaterialOverride = _material });
-        cube.AddChild(new CollisionShape3D { Shape = variant.Shape });
-        AddChild(cube);
+            Vector2I other = ChunkOf(cell + d);
+            if (other != chunk)
+                _dirty.Add(other);
+        }
     }
 
-    private static uint CellHash(Vector2I c) =>
-        unchecked(((uint)(c.X * 73856093) ^ (uint)(c.Y * 19349663)) * 2654435761u);
+    private static Vector2I ChunkOf(Vector2I cell) =>
+        new(Mathf.FloorToInt(cell.X / (float)ChunkSize), Mathf.FloorToInt(cell.Y / (float)ChunkSize));
 
-    /// <summary>
-    /// Un trozo de hielo con los 8 vértices un poco desplazados: ni cuadrado ni igual a los demás.
-    /// Devuelve la malla visible y la forma de colisión con los mismos vértices.
-    /// </summary>
-    private static (ArrayMesh Mesh, ConvexPolygonShape3D Shape) BuildVariant(Random rng)
+    /// <summary>Vuelve a construir la malla y la colisión de una zona a partir de sus celdas de hielo.</summary>
+    private void RebuildChunk(Vector2I chunk)
     {
-        const float h = IceCubeSize / 2f;
-        const float jitter = 0.05f;
-        float[] cx = { -h, h, h, -h };
-        float[] cz = { -h, -h, h, h };
-
-        // Vértices 0-3: cara de arriba. Vértices 4-7: cara de abajo, en el mismo orden.
-        var v = new Vector3[8];
-        for (int i = 0; i < 4; i++)
+        if (_chunks.TryGetValue(chunk, out StaticBody3D old))
         {
-            v[i] = Shake(rng, cx[i], h, cz[i], jitter);
-            v[i + 4] = Shake(rng, cx[i], -h, cz[i], jitter);
+            old.QueueFree();
+            _chunks.Remove(chunk);
         }
-
-        int[][] quads =
-        {
-            new[] { 0, 1, 2, 3 }, new[] { 7, 6, 5, 4 },
-            new[] { 0, 1, 5, 4 }, new[] { 1, 2, 6, 5 },
-            new[] { 2, 3, 7, 6 }, new[] { 3, 0, 4, 7 },
-        };
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
-        foreach (int[] q in quads)
-        {
-            Vector3 a = v[q[0]], b = v[q[1]], c = v[q[2]], d = v[q[3]];
-            Vector3 outward = (a + b + c + d) / 4f; // desde el centro del hielo hacia esta cara
-            AddTriangle(st, a, b, c, outward);
-            AddTriangle(st, a, c, d, outward);
-        }
-        st.GenerateNormals();
+        bool any = false;
+        int x0 = chunk.X * ChunkSize;
+        int z0 = chunk.Y * ChunkSize;
+        for (int x = x0; x < x0 + ChunkSize; x++)
+            for (int z = z0; z < z0 + ChunkSize; z++)
+            {
+                var cell = new Vector2I(x, z);
+                if (!_ice.Contains(cell))
+                    continue;
 
-        return (st.Commit(), new ConvexPolygonShape3D { Points = v });
+                AddCell(st, cell);
+                any = true;
+            }
+
+        if (!any)
+            return;
+
+        ArrayMesh mesh = st.Commit();
+        var body = new StaticBody3D();
+        body.AddChild(new MeshInstance3D
+        {
+            Mesh = mesh,
+            MaterialOverride = _material,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, // el hielo no proyecta sombras propias
+        });
+        body.AddChild(new CollisionShape3D { Shape = mesh.CreateTrimeshShape() });
+        AddChild(body);
+        _chunks[chunk] = body;
     }
 
     /// <summary>
-    /// Añade un triángulo con el orden de vértices correcto. Godot considera "de frente" el orden horario,
-    /// así que la normal calculada a mano (regla de la mano derecha) tiene que apuntar hacia dentro del cubo.
+    /// Añade una celda: la cara de arriba siempre, y cada costado solo si el vecino no tiene hielo.
+    /// Los vértices de la superficie se comparten con las celdas vecinas, por eso no quedan huecos.
+    /// </summary>
+    private void AddCell(SurfaceTool st, Vector2I cell)
+    {
+        int x = cell.X;
+        int z = cell.Y;
+        Vector3 nw = Corner(x, z);
+        Vector3 ne = Corner(x + 1, z);
+        Vector3 se = Corner(x + 1, z + 1);
+        Vector3 sw = Corner(x, z + 1);
+
+        AddQuad(st, nw, ne, se, sw, Vector3.Up);
+
+        if (!_ice.Contains(new Vector2I(x, z - 1)))
+            AddQuad(st, nw, ne, Bottom(x + 1, z), Bottom(x, z), Vector3.Forward);
+        if (!_ice.Contains(new Vector2I(x, z + 1)))
+            AddQuad(st, sw, se, Bottom(x + 1, z + 1), Bottom(x, z + 1), Vector3.Back);
+        if (!_ice.Contains(new Vector2I(x - 1, z)))
+            AddQuad(st, nw, sw, Bottom(x, z + 1), Bottom(x, z), Vector3.Left);
+        if (!_ice.Contains(new Vector2I(x + 1, z)))
+            AddQuad(st, ne, se, Bottom(x + 1, z + 1), Bottom(x + 1, z), Vector3.Right);
+    }
+
+    /// <summary>Punto de la superficie en la esquina (x, z) de la rejilla, con una pequeña variación de altura.</summary>
+    private static Vector3 Corner(int x, int z) =>
+        new(x * CellSize, SurfaceY + Bump(x, z), z * CellSize);
+
+    /// <summary>Punto de la base del hielo (hasta donde llega el cubo) en la esquina (x, z).</summary>
+    private static Vector3 Bottom(int x, int z) =>
+        new(x * CellSize, SurfaceY - IceCubeSize, z * CellSize);
+
+    /// <summary>Variación de altura fija para cada esquina: la misma en todas las partidas.</summary>
+    private static float Bump(int x, int z)
+    {
+        uint h = CellHash(new Vector2I(x, z));
+        return (h % 1000u / 999f - 0.5f) * 2f * Bumpiness;
+    }
+
+    private static void AddQuad(SurfaceTool st, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 normal)
+    {
+        AddTriangle(st, a, b, c, normal);
+        AddTriangle(st, a, c, d, normal);
+    }
+
+    /// <summary>
+    /// Añade un triángulo con la normal dada y el orden de vértices correcto. Godot considera "de frente" el orden horario,
+    /// así que la normal calculada a mano (regla de la mano derecha) tiene que apuntar hacia dentro.
     /// Si no, se ven las caras de dentro y el hielo parece transparente y sin color.
     /// </summary>
     private static void AddTriangle(SurfaceTool st, Vector3 a, Vector3 b, Vector3 c, Vector3 outward)
@@ -197,13 +247,14 @@ public partial class IceGrid : Node3D
         if (n.Dot(outward) > 0)
             (b, c) = (c, b);
 
+        st.SetNormal(outward);
         st.AddVertex(a);
+        st.SetNormal(outward);
         st.AddVertex(b);
+        st.SetNormal(outward);
         st.AddVertex(c);
     }
 
-    private static Vector3 Shake(Random rng, float x, float y, float z, float amount) =>
-        new(x + Signed(rng) * amount, y + Signed(rng) * amount * 0.5f, z + Signed(rng) * amount);
-
-    private static float Signed(Random rng) => (float)(rng.NextDouble() * 2 - 1);
+    private static uint CellHash(Vector2I c) =>
+        unchecked(((uint)(c.X * 73856093) ^ (uint)(c.Y * 19349663)) * 2654435761u);
 }
