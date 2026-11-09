@@ -142,12 +142,40 @@ public sealed class GameState
     public const double CycleLength = DayLength + NightLength;
 
     /// <summary>Segundos dentro del ciclo actual (0 = amanecer).</summary>
-    public double CycleTime { get; set; }
+    public double CycleTime { get; set; } = Twilight; // una partida nueva empieza de día, con la luz ya plena
 
     public bool IsNight => CycleTime >= DayLength;
 
-    /// <summary>Luz del día: 0 de noche, 1 con el sol alto. Sube y baja deprisa al amanecer y al atardecer.</summary>
-    public double Daylight => IsNight ? 0.0 : Math.Min(1.0, Math.Sin(Math.PI * CycleTime / DayLength) * 4.0);
+    /// <summary>Duración del amanecer y del anochecer, en segundos. Dentro de esos segundos la luz cambia suavemente.</summary>
+    private const double Twilight = 40.0;
+
+    /// <summary>Oscuridad: 0 de día, 1 de noche. Cambia en 40 s al amanecer y 40 s al anochecer.</summary>
+    public double Darkness
+    {
+        get
+        {
+            double c = CycleTime;
+            double linear;
+            if (c < Twilight)
+                linear = 1.0 - c / Twilight;                              // amanecer
+            else if (c < DayLength - Twilight)
+                linear = 0.0;                                             // día
+            else if (c < DayLength)
+                linear = (c - (DayLength - Twilight)) / Twilight;         // anochecer
+            else
+                linear = 1.0;                                             // noche
+            return Smooth(linear);
+        }
+    }
+
+    /// <summary>Luz del día: 1 con el sol alto, 0 de noche.</summary>
+    public double Daylight => 1.0 - Darkness;
+
+    private static double Smooth(double x)
+    {
+        x = Math.Clamp(x, 0.0, 1.0);
+        return x * x * (3.0 - 2.0 * x);
+    }
 
     /// <summary>Segundos entre lanzamientos: 10 s sin mejorar, bajando de forma exponencial hasta 0,5 s en el nivel 20.</summary>
     public double LaunchSeconds => 10.0 * Math.Pow(0.05, LauncherSpeed.Level / (double)LauncherSpeed.MaxLevel);

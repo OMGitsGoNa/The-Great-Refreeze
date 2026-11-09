@@ -1731,7 +1731,7 @@ public partial class Main : Node3D
 
         EnsureFlashlight();
         if (_flashlight != null)
-            _flashlight.Visible = _state.HasFlashlight && (_flashOn || (_state.HasAutoFlashlight && _state.IsNight));
+            _flashlight.Visible = _state.HasFlashlight && (_flashOn || (_state.HasAutoFlashlight && _state.Darkness > 0.35));
     }
 
     /// <summary>La linterna es un foco que sale de la cámara. Se crea la primera vez que hace falta.</summary>
