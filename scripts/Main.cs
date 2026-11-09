@@ -1269,16 +1269,16 @@ public partial class Main : Node3D
     /// <summary>El cubo empieza oculto. Aparece en el muelle al comprarlo; al cogerlo pasa a la mano.</summary>
     private void BuildBucket()
     {
-        // Cubo de metal: cilindro con aro superior y asa. El color cambia según tenga hielo (ver UpdateHud).
+        // Cubo cuadrado de metal mate (sin brillo). El color cambia según tenga hielo (ver UpdateHud).
         _bucketMaterial = new StandardMaterial3D
         {
             AlbedoColor = BucketEmptyColor,
-            Metallic = 0.85f,
-            Roughness = 0.3f,
+            Metallic = 0f,
+            Roughness = 1f,
         };
         _bucketShape = new CollisionShape3D
         {
-            Shape = new CylinderShape3D { Radius = BucketRadius, Height = BucketSize.Y },
+            Shape = new BoxShape3D { Size = BucketSize },
             Disabled = true,
         };
 
@@ -1291,21 +1291,14 @@ public partial class Main : Node3D
         };
         _bucket.AddChild(new MeshInstance3D
         {
-            Mesh = new CylinderMesh { TopRadius = BucketRadius, BottomRadius = BucketRadius * 0.85f, Height = BucketSize.Y },
+            Mesh = new BoxMesh { Size = BucketSize },
             MaterialOverride = _bucketMaterial,
         });
-        _bucket.AddChild(new MeshInstance3D // aro superior
+        _bucket.AddChild(new MeshInstance3D // asa: barra cuadrada sobre el cubo
         {
-            Mesh = new TorusMesh { InnerRadius = BucketRadius - 0.04f, OuterRadius = BucketRadius + 0.02f },
+            Mesh = new BoxMesh { Size = new Vector3(BucketSize.X * 0.8f, 0.05f, 0.05f) },
             MaterialOverride = _bucketMaterial,
-            Position = new Vector3(0, BucketSize.Y / 2f, 0),
-        });
-        _bucket.AddChild(new MeshInstance3D // asa, en vertical sobre el cubo
-        {
-            Mesh = new TorusMesh { InnerRadius = 0.025f, OuterRadius = BucketRadius * 0.85f },
-            MaterialOverride = _bucketMaterial,
-            Position = new Vector3(0, BucketSize.Y / 2f + 0.05f, 0),
-            RotationDegrees = new Vector3(90f, 0f, 0f),
+            Position = new Vector3(0, BucketSize.Y / 2f + 0.08f, 0),
         });
         _bucket.AddChild(_bucketShape);
         AddChild(_bucket);

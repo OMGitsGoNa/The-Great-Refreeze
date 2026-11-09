@@ -96,7 +96,8 @@ public sealed class GameState
 
     // Precios: el cubo cuesta 5 $; su primera mejora de capacidad, 1 $.
     public Upgrade Bucket { get; } = new("Cubo", "Lleva hielo sin que se derrita", 5, 1.0, 1);
-    public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad (máx. 50)", 1, 1.6, 4);
+    // Capacidad: 10 de base + 10 por mejora, hasta 200 (19 mejoras). Crece x1,45 por nivel.
+    public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad (máx. 200)", 1, 1.45, 19);
     public Upgrade Tray { get; } = new("Cubitera grande", "+1 hielo por carga", 1, 1.6);
     public Upgrade Freezer { get; } = new("Congelador", "+0,5 hielo/s al montón", 4, 1.35);
     public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 5, 1.8);
