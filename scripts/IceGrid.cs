@@ -40,7 +40,13 @@ public partial class IceGrid : Node3D
 
     public override void _Ready()
     {
-        _material = new StandardMaterial3D { AlbedoColor = new Color(0.8f, 0.93f, 1f) };
+        // Hielo algo más sólido: azul más saturado y superficie poco brillante, para que no parezca transparente.
+        _material = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.6f, 0.82f, 0.96f),
+            Roughness = 0.35f,
+            Metallic = 0f,
+        };
 
         // Semilla fija: las formas son las mismas en todas las partidas.
         var rng = new Random(12345);
@@ -180,11 +186,15 @@ public partial class IceGrid : Node3D
         return (st.Commit(), new ConvexPolygonShape3D { Points = v });
     }
 
-    /// <summary>Añade un triángulo con el sentido que mira hacia fuera, para que se vea desde fuera.</summary>
+    /// <summary>
+    /// Añade un triángulo con el orden de vértices correcto. Godot considera "de frente" el orden horario,
+    /// así que la normal calculada a mano (regla de la mano derecha) tiene que apuntar hacia dentro del cubo.
+    /// Si no, se ven las caras de dentro y el hielo parece transparente y sin color.
+    /// </summary>
     private static void AddTriangle(SurfaceTool st, Vector3 a, Vector3 b, Vector3 c, Vector3 outward)
     {
         Vector3 n = (b - a).Cross(c - a);
-        if (n.Dot(outward) < 0)
+        if (n.Dot(outward) > 0)
             (b, c) = (c, b);
 
         st.AddVertex(a);

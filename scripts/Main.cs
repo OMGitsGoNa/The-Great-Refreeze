@@ -50,9 +50,10 @@ public partial class Main : Node3D
     private static readonly Vector3 BucketSize = new(0.7f, 0.6f, 0.7f);
     private static readonly Vector3 BucketRestPosition = new(-1.2f, 0.3f, -4f);  // sobre el muelle
     private static readonly Vector3 BucketHoldPosition = new(0.35f, -0.4f, -0.7f); // delante, a la derecha de la cámara
-    private static readonly Color BucketEmptyColor = new(0.95f, 0.95f, 0.97f);
-    private static readonly Color BucketFullColor = new(0.2f, 0.5f, 1f);
-    private static readonly Color IceColor = new(0.8f, 0.93f, 1f);
+    private const float BucketRadius = 0.33f;
+    private static readonly Color BucketEmptyColor = new(0.78f, 0.8f, 0.84f); // plata
+    private static readonly Color BucketFullColor = new(0.25f, 0.5f, 0.95f); // azul acero: tiene hielo
+    private static readonly Color IceColor = new(0.6f, 0.82f, 0.96f); // azul hielo, algo más sólido que el agua
 
     /// <summary>Celdas que ocupan las rampas: fuera del muelle, dos celdas de largo y cuatro de ancho, una por lado.</summary>
     private static readonly CellRect[] RampAreas =
@@ -1263,10 +1264,16 @@ public partial class Main : Node3D
     /// <summary>El cubo empieza oculto. Aparece en el muelle al comprarlo; al cogerlo pasa a la mano.</summary>
     private void BuildBucket()
     {
-        _bucketMaterial = Mat(BucketEmptyColor);
+        // Cubo de metal: cilindro con aro superior y asa. El color cambia según tenga hielo (ver UpdateHud).
+        _bucketMaterial = new StandardMaterial3D
+        {
+            AlbedoColor = BucketEmptyColor,
+            Metallic = 0.85f,
+            Roughness = 0.3f,
+        };
         _bucketShape = new CollisionShape3D
         {
-            Shape = new BoxShape3D { Size = BucketSize },
+            Shape = new CylinderShape3D { Radius = BucketRadius, Height = BucketSize.Y },
             Disabled = true,
         };
 
@@ -1277,7 +1284,24 @@ public partial class Main : Node3D
             Position = BucketRestPosition,
             Visible = false,
         };
-        _bucket.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = BucketSize }, MaterialOverride = _bucketMaterial });
+        _bucket.AddChild(new MeshInstance3D
+        {
+            Mesh = new CylinderMesh { TopRadius = BucketRadius, BottomRadius = BucketRadius * 0.85f, Height = BucketSize.Y },
+            MaterialOverride = _bucketMaterial,
+        });
+        _bucket.AddChild(new MeshInstance3D // aro superior
+        {
+            Mesh = new TorusMesh { InnerRadius = BucketRadius - 0.04f, OuterRadius = BucketRadius + 0.02f },
+            MaterialOverride = _bucketMaterial,
+            Position = new Vector3(0, BucketSize.Y / 2f, 0),
+        });
+        _bucket.AddChild(new MeshInstance3D // asa, en vertical sobre el cubo
+        {
+            Mesh = new TorusMesh { InnerRadius = 0.025f, OuterRadius = BucketRadius * 0.85f },
+            MaterialOverride = _bucketMaterial,
+            Position = new Vector3(0, BucketSize.Y / 2f + 0.05f, 0),
+            RotationDegrees = new Vector3(90f, 0f, 0f),
+        });
         _bucket.AddChild(_bucketShape);
         AddChild(_bucket);
     }
