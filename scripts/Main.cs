@@ -146,6 +146,16 @@ public partial class Main : Node3D
     private bool _menuOpen;
     private bool _menuJustOpened; // evita que la misma tecla E que abre el menú lo cierre
 
+    // Menú principal y pausa (Esc)
+    private CanvasLayer _overlay;
+    private Control _titlePanel;
+    private Control _pausePanel;
+    private bool _titleOpen;
+    private bool _pauseOpen;
+    private static bool _skipTitle; // al empezar una partida nueva desde un menú no se vuelve a mostrar el menú principal
+
+    private readonly record struct MenuItem(string Text, Action Action, bool Enabled);
+
     private bool _aimHit;     // el punto que miras está a alcance
     private bool _aimValid;   // se puede colocar hielo ahí
     private Vector2I _aimCell;
@@ -177,6 +187,12 @@ public partial class Main : Node3D
         else
             DevMode.Apply(_state); // MODO DEV: quitar esta línea al eliminar DevMode.cs (solo en partida nueva)
 
+        BuildOverlays();
+        bool showTitle = !_skipTitle;
+        _skipTitle = false;
+        if (showTitle)
+            ShowTitle();
+
         _state.Melted += () =>
         {
             ShowMessage("Un hielo del montón se ha derretido");
@@ -192,6 +208,10 @@ public partial class Main : Node3D
 
     public override void _Process(double delta)
     {
+        // Con el menú principal o el de pausa abiertos, el mundo no avanza.
+        if (_titleOpen || _pauseOpen)
+            return;
+
         _state.Tick(delta);
         _menuJustOpened = false;
         _placeCooldown -= delta;
@@ -240,6 +260,16 @@ public partial class Main : Node3D
             {
                 CloseMenu();
             }
+            return;
+        }
+
+        // Esc: abre el menú de pausa o lo cierra (el menú principal no responde a Esc).
+        if (@event is InputEventKey esc && esc.Pressed && !esc.Echo && esc.PhysicalKeycode == Key.Escape && !_titleOpen)
+        {
+            if (_pauseOpen)
+                ContinueGame();
+            else
+                OpenPause();
             return;
         }
 
@@ -895,8 +925,103 @@ public partial class Main : Node3D
     private void StartNewGame()
     {
         _resetting = true;
+        _skipTitle = true;
         SaveGame.Delete();
         GetTree().ReloadCurrentScene();
+    }
+
+    // ---------------------------------------------------------------- menú principal y pausa
+
+    private void BuildOverlays()
+    {
+        _overlay = new CanvasLayer { Layer = 20 }; // por encima del HUD
+        AddChild(_overlay);
+
+        _titlePanel = BuildMenuPanel("The Great Refreeze", new Color(0.05f, 0.1f, 0.18f, 0.94f),
+            new MenuItem("Continuar", ContinueGame, SaveGame.Exists),
+            new MenuItem("Nueva partida (borra el guardado)", StartNewGame, true),
+            new MenuItem("Salir", QuitGame, true));
+
+        _pausePanel = BuildMenuPanel("Pausa", new Color(0f, 0f, 0f, 0.55f),
+            new MenuItem("Continuar", ContinueGame, true),
+            new MenuItem("Guardar partida", SaveAndNotify, true),
+            new MenuItem("Nueva partida (borra el guardado)", StartNewGame, true),
+            new MenuItem("Salir al escritorio", QuitGame, true));
+    }
+
+    private Control BuildMenuPanel(string title, Color backdrop, params MenuItem[] items)
+    {
+        var root = new Control { Visible = false, MouseFilter = Control.MouseFilterEnum.Stop };
+        root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _overlay.AddChild(root);
+
+        var shade = new ColorRect { Color = backdrop, MouseFilter = Control.MouseFilterEnum.Ignore };
+        shade.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        root.AddChild(shade);
+
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(420, 0) };
+        panel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center);
+        panel.GrowHorizontal = Control.GrowDirection.Both;
+        panel.GrowVertical = Control.GrowDirection.Both;
+        root.AddChild(panel);
+
+        var box = new VBoxContainer();
+        panel.AddChild(box);
+        box.AddChild(new Label { Text = title, HorizontalAlignment = HorizontalAlignment.Center });
+
+        foreach (MenuItem item in items)
+        {
+            var button = new Button
+            {
+                Text = item.Text,
+                Disabled = !item.Enabled,
+                CustomMinimumSize = new Vector2(360, 44),
+            };
+            button.Pressed += item.Action;
+            box.AddChild(button);
+        }
+        return root;
+    }
+
+    private void ShowTitle()
+    {
+        _titleOpen = true;
+        _titlePanel.Visible = true;
+        _player.Frozen = true;
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+    }
+
+    private void OpenPause()
+    {
+        _pauseOpen = true;
+        _pausePanel.Visible = true;
+        _player.Frozen = true;
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+    }
+
+    /// <summary>Cierra el menú principal o el de pausa y vuelve al juego.</summary>
+    private void ContinueGame()
+    {
+        _titleOpen = false;
+        _pauseOpen = false;
+        _titlePanel.Visible = false;
+        _pausePanel.Visible = false;
+        _player.Frozen = false;
+        Input.MouseMode = Input.MouseModeEnum.Captured;
+    }
+
+    private void SaveAndNotify()
+    {
+        SaveGameNow();
+        ShowMessage("Partida guardada");
+    }
+
+    /// <summary>Guarda la partida (si ya estás jugando) y cierra el juego.</summary>
+    private void QuitGame()
+    {
+        if (!_titleOpen && !_resetting)
+            SaveGameNow();
+        GetTree().Quit();
     }
 
     // ---------------------------------------------------------------- menú de mejoras

@@ -97,13 +97,8 @@ public partial class Player : CharacterBody3D
         }
         else if (@event is InputEventKey key && key.Pressed && !key.Echo)
         {
-            if (key.PhysicalKeycode == Key.Escape)
-            {
-                Input.MouseMode = Input.MouseMode == Input.MouseModeEnum.Captured
-                    ? Input.MouseModeEnum.Visible
-                    : Input.MouseModeEnum.Captured;
-            }
-            else if (key.PhysicalKeycode == Key.E && LookedStation != null)
+            // Esc lo gestiona Main (menú de pausa).
+            if (key.PhysicalKeycode == Key.E && LookedStation != null)
             {
                 StationUsed?.Invoke(LookedStation);
             }
