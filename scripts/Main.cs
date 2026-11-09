@@ -842,8 +842,8 @@ public partial class Main : Node3D
         };
         _state.WriteTo(data);
 
-        foreach (Vector2I cell in _grid.PlacedCells)
-            data.Cells.Add(new[] { cell.X, cell.Y });
+        foreach (var (cell, level) in _grid.PlacedLevels)
+            data.Cells.Add(new[] { cell.X, cell.Y, level });
 
         SaveGame.Write(data);
     }
@@ -859,7 +859,7 @@ public partial class Main : Node3D
         foreach (int[] c in save.Cells)
         {
             var cell = new Vector2I(c[0], c[1]);
-            _grid.PlaceForced(cell);       // hielo ya colocado, sin peces
+            _grid.PlaceWithLevel(cell, c.Length > 2 ? c[2] : 0); // hielo ya colocado con su altura, sin peces
             _sectors.RecordPlaced(cell);   // revela sectores y cuenta cubos (el bono ya estaba cobrado)
         }
 

@@ -6,9 +6,10 @@ using Godot;
 namespace GreatRefreeze;
 
 /// <summary>
-/// Rejilla de celdas cuadradas sobre el agua. Guarda qué celdas están ocupadas (muelle, plataforma o hielo).
-/// El hielo se dibuja por zonas de 16 x 16 celdas: cada zona es una sola malla con su colisión, y las caras
-/// que dan a otro hielo no se dibujan, así que los hielos vecinos forman un bloque continuo.
+/// Rejilla de celdas cuadradas sobre el agua. Guarda qué celdas están ocupadas (muelle, plataforma o hielo)
+/// y la altura de cada hielo. El hielo se dibuja por zonas de 16 x 16 celdas: cada zona es una malla con su
+/// colisión, las caras que dan a otro hielo no se dibujan y los vértices se comparten, así no quedan huecos.
+/// Al colocar un hielo junto a vecinos más altos hay un 50/50: sube hasta igualarlos o baja un escalón.
 /// La celda (x, z) cubre el mundo desde (x * CellSize, z * CellSize) hasta (x + 1, z + 1) * CellSize.
 /// Los sectores (anillos alrededor del muelle) están en SectorMap.
 /// </summary>
@@ -28,19 +29,32 @@ public partial class IceGrid : Node3D
     /// <summary>Tamaño visual de un cubo (también lo usa la sombra de previsualización).</summary>
     public static readonly Vector3 VisualSize = new(IceCubeSize, IceCubeSize, IceCubeSize);
 
+    /// <summary>Altura que sube cada nivel del montículo.</summary>
+    public const float StepHeight = 0.2f;
+
+    /// <summary>Nivel máximo. Con 0,2 por nivel la pendiente entre celdas sigue siendo caminable.</summary>
+    public const int MaxLevel = 4;
+
+    /// <summary>Probabilidad de que un hielo junto a vecinos planos empiece un montículo.</summary>
+    private const double StartChance = 0.15;
+
     /// <summary>Lado de una zona de hielo, en celdas. Cada zona es una malla y una colisión.</summary>
     private const int ChunkSize = 16;
 
-    /// <summary>Cuánto puede subir o bajar la superficie, para que no sea plana.</summary>
+    /// <summary>Cuánto puede subir o bajar la superficie por ruido, para que no sea plana.</summary>
     private const float Bumpiness = 0.03f;
+
+    /// <summary>Profundidad extra de los costados que dan al agua: así se ven marcados.</summary>
+    private const float SideDepth = 0.4f;
 
     private static readonly Vector2I[] Neighbors = { Vector2I.Right, Vector2I.Left, Vector2I.Up, Vector2I.Down };
 
     private readonly HashSet<Vector2I> _occupied = new();
     private readonly HashSet<Vector2I> _dock = new(); // celdas fijas (muelle, plataformas): no cuentan como cubos
-    private readonly HashSet<Vector2I> _ice = new(); // celdas con hielo visible (incluye plataforma del oso y rampas)
+    private readonly Dictionary<Vector2I, int> _levels = new(); // altura de cada hielo visible (0 = plano)
     private readonly HashSet<Vector2I> _dirty = new(); // zonas que hay que reconstruir en este fotograma
     private readonly Dictionary<Vector2I, StaticBody3D> _chunks = new();
+    private readonly Random _rng = new(4242);
     private StandardMaterial3D _material;
 
     public override void _Ready()
@@ -71,6 +85,10 @@ public partial class IceGrid : Node3D
 
     /// <summary>Celdas con hielo puesto por el jugador (sin muelle ni plataformas fijas), para guardar la partida.</summary>
     public IEnumerable<Vector2I> PlacedCells => _occupied.Where(c => !_dock.Contains(c));
+
+    /// <summary>Celdas puestas por el jugador con su altura, para guardar la partida.</summary>
+    public IEnumerable<(Vector2I Cell, int Level)> PlacedLevels =>
+        PlacedCells.Select(c => (c, _levels.GetValueOrDefault(c)));
 
     /// <summary>Marca una celda del muelle como ocupada sin crear hielo.</summary>
     public void MarkOccupied(Vector2I cell)
@@ -106,44 +124,64 @@ public partial class IceGrid : Node3D
     {
         _occupied.Add(cell);
         _dock.Add(cell);
-        AddCube(cell);
+        AddCube(cell, 0);
     }
 
-    /// <summary>Crea un cubo de hielo en la celda. Devuelve false si no se puede colocar ahí.</summary>
+    /// <summary>Crea un cubo de hielo en la celda. La altura depende de los vecinos. Devuelve false si no se puede.</summary>
     public bool Place(Vector2I cell)
     {
         if (!CanPlace(cell))
             return false;
 
         _occupied.Add(cell);
-        AddCube(cell);
+        AddCube(cell, ChooseLevel(cell));
         return true;
     }
 
     /// <summary>
     /// Pone un cubo de hielo sin comprobar nada (por ejemplo, el que queda debajo de una rampa).
-    /// No da peces: eso lo decide quien lo llama.
+    /// No da peces: eso lo decide quien lo llama. Va plano.
     /// </summary>
     public void PlaceForced(Vector2I cell)
     {
         _occupied.Add(cell);
-        AddCube(cell);
+        AddCube(cell, 0);
     }
 
-    /// <summary>Añade el hielo de la celda y marca su zona y las vecinas de otra zona para reconstruirlas.</summary>
-    private void AddCube(Vector2I cell)
+    /// <summary>Restaura un hielo con su altura exacta al cargar una partida.</summary>
+    public void PlaceWithLevel(Vector2I cell, int level)
     {
-        _ice.Add(cell);
-        Vector2I chunk = ChunkOf(cell);
-        _dirty.Add(chunk);
+        _occupied.Add(cell);
+        AddCube(cell, Math.Clamp(level, 0, MaxLevel));
+    }
 
-        // Un vecino de otra zona cambia sus costados, así que también se reconstruye.
+    /// <summary>
+    /// Altura del nuevo hielo. Si los vecinos son más altos, 50/50: iguala al más alto o baja un escalón.
+    /// Si son planos, de vez en cuando empieza un montículo.
+    /// </summary>
+    private int ChooseLevel(Vector2I cell)
+    {
+        int highest = 0;
         foreach (Vector2I d in Neighbors)
-        {
-            Vector2I other = ChunkOf(cell + d);
-            if (other != chunk)
-                _dirty.Add(other);
-        }
+            if (_levels.TryGetValue(cell + d, out int l))
+                highest = Math.Max(highest, l);
+
+        if (highest == 0)
+            return _rng.NextDouble() < StartChance ? 1 : 0;
+
+        int level = _rng.NextDouble() < 0.5 ? highest : highest - 1;
+        return Math.Min(level, MaxLevel);
+    }
+
+    /// <summary>Añade el hielo de la celda con su altura y marca las zonas alrededor para reconstruirlas.</summary>
+    private void AddCube(Vector2I cell, int level)
+    {
+        _levels[cell] = level;
+
+        // La altura de la celda afecta a las esquinas compartidas con las 8 celdas de alrededor.
+        for (int dx = -1; dx <= 1; dx++)
+            for (int dz = -1; dz <= 1; dz++)
+                _dirty.Add(ChunkOf(cell + new Vector2I(dx, dz)));
     }
 
     private static Vector2I ChunkOf(Vector2I cell) =>
@@ -167,7 +205,7 @@ public partial class IceGrid : Node3D
             for (int z = z0; z < z0 + ChunkSize; z++)
             {
                 var cell = new Vector2I(x, z);
-                if (!_ice.Contains(cell))
+                if (!_levels.ContainsKey(cell))
                     continue;
 
                 AddCell(st, cell);
@@ -205,23 +243,34 @@ public partial class IceGrid : Node3D
 
         AddQuad(st, nw, ne, se, sw, Vector3.Up);
 
-        if (!_ice.Contains(new Vector2I(x, z - 1)))
+        // Costados libres: bajan hasta bastante por debajo del agua, así se ven marcados.
+        if (!_levels.ContainsKey(new Vector2I(x, z - 1)))
             AddQuad(st, nw, ne, Bottom(x + 1, z), Bottom(x, z), Vector3.Forward);
-        if (!_ice.Contains(new Vector2I(x, z + 1)))
+        if (!_levels.ContainsKey(new Vector2I(x, z + 1)))
             AddQuad(st, sw, se, Bottom(x + 1, z + 1), Bottom(x, z + 1), Vector3.Back);
-        if (!_ice.Contains(new Vector2I(x - 1, z)))
+        if (!_levels.ContainsKey(new Vector2I(x - 1, z)))
             AddQuad(st, nw, sw, Bottom(x, z + 1), Bottom(x, z), Vector3.Left);
-        if (!_ice.Contains(new Vector2I(x + 1, z)))
+        if (!_levels.ContainsKey(new Vector2I(x + 1, z)))
             AddQuad(st, ne, se, Bottom(x + 1, z + 1), Bottom(x + 1, z), Vector3.Right);
     }
 
-    /// <summary>Punto de la superficie en la esquina (x, z) de la rejilla, con una pequeña variación de altura.</summary>
-    private static Vector3 Corner(int x, int z) =>
-        new(x * CellSize, SurfaceY + Bump(x, z), z * CellSize);
+    /// <summary>
+    /// Altura de la esquina (x, z): media de las 4 celdas que la tocan (las vacías cuentan como 0),
+    /// así todas las celdas que comparten esquina usan la misma altura y no se abren huecos.
+    /// </summary>
+    private Vector3 Corner(int x, int z)
+    {
+        int sum = LevelAt(new Vector2I(x - 1, z - 1)) + LevelAt(new Vector2I(x, z - 1))
+                + LevelAt(new Vector2I(x - 1, z)) + LevelAt(new Vector2I(x, z));
+        float height = SurfaceY + sum / 4f * StepHeight + Bump(x, z);
+        return new Vector3(x * CellSize, height, z * CellSize);
+    }
 
-    /// <summary>Punto de la base del hielo (hasta donde llega el cubo) en la esquina (x, z).</summary>
+    private int LevelAt(Vector2I cell) => _levels.TryGetValue(cell, out int l) ? l : 0;
+
+    /// <summary>Punto de la base del costado libre en la esquina (x, z).</summary>
     private static Vector3 Bottom(int x, int z) =>
-        new(x * CellSize, SurfaceY - IceCubeSize, z * CellSize);
+        new(x * CellSize, SurfaceY - IceCubeSize - SideDepth, z * CellSize);
 
     /// <summary>Variación de altura fija para cada esquina: la misma en todas las partidas.</summary>
     private static float Bump(int x, int z)
