@@ -181,6 +181,7 @@ public partial class Main : Node3D
 
         BuildEnvironment();
         BuildWorld();
+        BuildWeather();
         BuildPlayer();
         BuildGhost();
         BuildHud();
@@ -251,6 +252,8 @@ public partial class Main : Node3D
             }
         }
 
+        UpdateFootprints(delta);
+        UpdateWeather();
         UpdateHud(delta);
     }
 
@@ -1151,6 +1154,50 @@ public partial class Main : Node3D
         box.AddChild(close);
     }
 
+    // ---------------------------------------------------------------- clima
+
+    private CpuParticles3D _snow;
+
+    /// <summary>Nieve y viento. Al principio es una tormenta; según avanza el Ártico, se queda en copos suaves y acaba despejado.</summary>
+    private void BuildWeather()
+    {
+        var flake = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled,
+            VertexColorUseAsAlbedo = true, // para que el color (y su transparencia) de cada partícula se vea
+        };
+        _snow = new CpuParticles3D
+        {
+            Amount = 350,
+            Lifetime = 9.0,
+            LocalCoords = false, // las partículas se quedan en el mundo mientras el emisor te sigue
+            EmissionShape = CpuParticles3D.EmissionShapeEnum.Box,
+            EmissionBoxExtents = new Vector3(22f, 1f, 22f),
+            Direction = new Vector3(0f, -1f, 0f),
+            Spread = 8f,
+            InitialVelocityMin = 0.3f,
+            InitialVelocityMax = 0.6f,
+            ScaleAmountMin = 0.8f,
+            ScaleAmountMax = 1.4f,
+            Mesh = new QuadMesh { Size = new Vector2(0.06f, 0.06f), Material = flake },
+        };
+        AddChild(_snow);
+    }
+
+    private void UpdateWeather()
+    {
+        if (_snow == null)
+            return;
+
+        float intensity = 1f - (float)_state.Progress; // 1 al principio, 0 con el Ártico recongelado
+        _snow.GlobalPosition = _player.GlobalPosition + new Vector3(0f, 10f, 0f);
+        _snow.Gravity = new Vector3(3.5f * intensity, -1.2f, 1.0f * intensity); // el viento empuja de lado
+        _snow.Color = new Color(1f, 1f, 1f, 0.25f + 0.6f * intensity);
+        _snow.Emitting = intensity > 0.05f;
+    }
+
     // ---------------------------------------------------------------- mundo
 
     private void BuildEnvironment()
@@ -1943,6 +1990,62 @@ void fragment() {
         }
 
         _warnLabel.Modulate = _frostShown > 0.66f ? new Color(1f, 0.6f, 0.6f) : new Color(0.85f, 0.95f, 1f);
+    }
+
+    // Rastro de pasos: al caminar sobre el hielo quedan huellas que se derriten poco a poco.
+    private Node3D _footprints;
+    private float _stepDistance;
+    private bool _stepLeft;
+
+    private void UpdateFootprints(double delta)
+    {
+        if (_menuOpen || _titleOpen || _pauseOpen || !_player.IsOnFloor())
+            return;
+
+        Vector3 flat = new Vector3(_player.Velocity.X, 0f, _player.Velocity.Z);
+        if (flat.Length() < 0.5f)
+            return;
+
+        _stepDistance += flat.Length() * (float)delta;
+        if (_stepDistance < 0.85f)
+            return;
+        _stepDistance = 0f;
+
+        Vector3 pos = _player.GlobalPosition;
+        if (!_grid.IsOccupied(IceGrid.WorldToCell(pos)))
+            return; // solo se marca el hielo
+
+        if (_footprints == null)
+        {
+            _footprints = new Node3D();
+            AddChild(_footprints);
+        }
+
+        // Una huella a cada lado, alternando, siguiendo la dirección del personaje.
+        Vector3 right = _player.GlobalTransform.Basis.X;
+        float side = _stepLeft ? -0.12f : 0.12f;
+        _stepLeft = !_stepLeft;
+
+        var mat = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.45f, 0.65f, 0.85f, 0.7f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            Roughness = 1f,
+        };
+        var print = new MeshInstance3D
+        {
+            Mesh = new QuadMesh { Size = new Vector2(0.22f, 0.34f) },
+            MaterialOverride = mat,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        _footprints.AddChild(print);
+        print.GlobalPosition = pos + right * side + Vector3.Up * 0.015f;
+        print.RotationDegrees = new Vector3(-90f, _player.RotationDegrees.Y, 0f);
+
+        // Se derrite: pierde color poco a poco y desaparece.
+        Tween melt = CreateTween();
+        melt.TweenMethod(Callable.From<float>(a => mat.AlbedoColor = new Color(0.45f, 0.65f, 0.85f, a)), 0.7f, 0f, 25f);
+        melt.TweenCallback(Callable.From(print.QueueFree));
     }
 
     private void UpdateHud(double delta)

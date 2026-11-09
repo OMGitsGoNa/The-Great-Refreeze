@@ -28,6 +28,7 @@ public partial class SectorLines : Node3D
     private Vector3 _drawnFrom;
     private bool _drawn;
     private int _drawnReveal;
+    private int _drawnCompleted;
 
     public SectorLines(SectorMap map, Func<Vector3> viewer)
     {
@@ -46,16 +47,25 @@ public partial class SectorLines : Node3D
         Vector3 p = _viewer();
         bool moved = new Vector2(p.X - _drawnFrom.X, p.Z - _drawnFrom.Z).Length() >= RedrawDistance;
         bool revealedChanged = _map.RevealedCount != _drawnReveal;
-        if (_drawn && !moved && !revealedChanged)
+
+        // Cuántos sectores están completos: si cambia, hay que quitar las líneas del que acaba de completarse.
+        int completed = 0;
+        foreach (Sector s in _map.Sectors)
+            if (s.Completed)
+                completed++;
+        bool completedChanged = completed != _drawnCompleted;
+
+        if (_drawn && !moved && !revealedChanged && !completedChanged)
             return;
 
         _drawn = true;
         _drawnFrom = p;
         _drawnReveal = _map.RevealedCount;
+        _drawnCompleted = completed;
 
-        // Solo se ven los sectores ya revelados (con algún cubo) y cerca del jugador.
-        _lines.Mesh = BuildOutlines(s => !s.IsFish && s.Revealed && IsNear(s, p), new Color(0.95f, 0.98f, 1f));
-        _fishLines.Mesh = BuildOutlines(s => s.IsFish && s.Revealed && IsNear(s, p), new Color(1f, 0.85f, 0.1f));
+        // Solo se ven los sectores ya revelados, sin completar y cerca del jugador.
+        _lines.Mesh = BuildOutlines(s => !s.IsFish && s.Revealed && !s.Completed && IsNear(s, p), new Color(0.95f, 0.98f, 1f));
+        _fishLines.Mesh = BuildOutlines(s => s.IsFish && s.Revealed && !s.Completed && IsNear(s, p), new Color(1f, 0.85f, 0.1f));
     }
 
     /// <summary>¿Está el sector dentro del radio visible? Mide hasta el borde más cercano del sector.</summary>
