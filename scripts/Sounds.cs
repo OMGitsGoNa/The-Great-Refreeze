@@ -13,8 +13,8 @@ public static class Sounds
 
     /// <summary>Crujido corto de hielo al colocar un cubo.</summary>
     public static AudioStream Crack() => Make(0.15f, t =>
-        (float)(Rng.NextDouble() * 2 - 1) * Math.Exp(-t * 55) * 0.6f
-        + Math.Sin(2 * Math.PI * 1100 * t) * Math.Exp(-t * 45) * 0.25f);
+        (float)(Rng.NextDouble() * 2 - 1) * Math.Exp(-t * 70) * 0.4f
+        + Math.Sin(2 * Math.PI * 320 * t) * Math.Exp(-t * 35) * 0.25f);
 
     /// <summary>Acorde ascendente al completar un sector.</summary>
     public static AudioStream Chime() => Make(0.6f, t =>

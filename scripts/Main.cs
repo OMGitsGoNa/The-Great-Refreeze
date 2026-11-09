@@ -79,6 +79,7 @@ public partial class Main : Node3D
     private PanelContainer _menu;
     private ProgressBar _chargeBar;
     private ColorRect _fade;
+    private ColorRect _frost;   // escarcha que cubre la pantalla al estar bajo el agua
     private bool _drowning;
 
     // HUD
@@ -133,6 +134,7 @@ public partial class Main : Node3D
 
     // Sonidos (generados en código, ver Sounds.cs)
     private AudioStream _crackSound;
+    private AudioStreamPlayer _crackPlayer;   // un solo reproductor para el crujido: no se apilan sonidos
     private AudioStream _chimeSound;
     private AudioStream _dripSound;
 
@@ -154,6 +156,8 @@ public partial class Main : Node3D
         SaveData save = SaveGame.Read();
         _seed = save?.Seed ?? new Random().Next();
         _crackSound = Sounds.Crack();
+        _crackPlayer = new AudioStreamPlayer { Stream = _crackSound };
+        AddChild(_crackPlayer);
         _chimeSound = Sounds.Chime();
         _dripSound = Sounds.Drip();
 
@@ -392,13 +396,12 @@ public partial class Main : Node3D
         }
         else
         {
-            // Al mantener el clic (Manos ágiles) no hay partículas ni mensaje: solo un crujido más bajo.
-            PlaySound(_crackSound, quiet ? -10 : -3);
+            // Cada cubo tiene su crujido y sus partículas, también con Manos ágiles.
+            // El de la máquina es más suave y con menos partículas; el mensaje solo sale al colocar a mano.
+            PlayCrack(fromTable ? -18 : quiet ? -10 : -3);
+            SpawnBurst(at, new Color(0.9f, 0.97f, 1f), fromTable ? 6 : 12);
             if (!quiet)
-            {
                 ShowMessage($"+{Fmt(_state.FishPerCube)} peces salvados");
-                SpawnBurst(at, new Color(0.9f, 0.97f, 1f), 12);
-            }
         }
         return true;
     }
@@ -562,7 +565,22 @@ public partial class Main : Node3D
             PixelSize = 0.005f,
             Position = new Vector3(0, 2.0f, 0),
         });
+        // Franja luminosa en el frente de la máquina.
+        _launcher.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(1.0f, 0.05f, 0.05f) },
+            MaterialOverride = Glow(new Color(0.5f, 0.9f, 1f)),
+            Position = new Vector3(0, 0.55f, 0.62f),
+        });
         AddChild(_launcher);
+    }
+
+    /// <summary>Crujido al colocar. Usa un solo reproductor: si ya suena, lo reinicia en vez de apilar sonidos.</summary>
+    private void PlayCrack(float volumeDb)
+    {
+        _crackPlayer.VolumeDb = volumeDb;
+        _crackPlayer.Stop();
+        _crackPlayer.Play();
     }
 
     /// <summary>Reproduce un sonido una vez y lo borra al terminar.</summary>
@@ -1232,8 +1250,74 @@ public partial class Main : Node3D
             Position = new Vector3(0, size.Y / 2f + 0.6f, 0),
         });
 
+        Decorate(station, kind, size, color);
         AddChild(station);
     }
+
+    /// <summary>
+    /// Detalles visuales de las máquinas: zócalo oscuro, borde metálico, pantalla luminosa, luces de estado
+    /// y una pieza propia de cada una. Todo se dibuja con cajas, así que sigue siendo fácil de tocar.
+    /// </summary>
+    private void Decorate(Node3D station, StationKind kind, Vector3 size, Color color)
+    {
+        Color metal = new Color(0.78f, 0.82f, 0.86f);
+        Color dark = new Color(0.18f, 0.2f, 0.24f);
+        Color screen = kind switch
+        {
+            StationKind.Tray => new Color(0.5f, 0.85f, 1f),
+            StationKind.Upgrades => new Color(1f, 0.7f, 0.25f),
+            StationKind.Sell => new Color(0.3f, 1f, 0.6f),
+            _ => Colors.White,
+        };
+
+        // Zócalo oscuro abajo, borde metálico arriba.
+        AddPart(station, new Vector3(size.X + 0.1f, 0.15f, size.Z + 0.1f), new Vector3(0, -size.Y / 2f + 0.075f, 0), dark);
+        AddPart(station, new Vector3(size.X + 0.04f, 0.08f, size.Z + 0.04f), new Vector3(0, size.Y / 2f + 0.04f, 0), metal);
+
+        // Pantalla frontal y tres luces de estado.
+        AddPart(station, new Vector3(size.X * 0.6f, size.Y * 0.3f, 0.04f), new Vector3(0, size.Y * 0.1f, size.Z / 2f + 0.02f), dark, screen);
+        for (int i = 0; i < 3; i++)
+            AddPart(station, new Vector3(0.08f, 0.08f, 0.05f), new Vector3(-size.X * 0.3f + i * 0.14f, -size.Y * 0.3f, size.Z / 2f + 0.03f), dark, screen);
+
+        // Pieza propia de cada máquina.
+        switch (kind)
+        {
+            case StationKind.Tray:
+                AddPart(station, new Vector3(0.35f, 0.18f, 0.25f), new Vector3(0, -size.Y * 0.2f, size.Z / 2f + 0.12f), metal);           // tubo de salida
+                AddPart(station, new Vector3(size.X * 0.9f, 0.04f, 0.3f), new Vector3(0, size.Y / 2f + 0.1f, 0), dark, screen);          // tapa luminosa
+                break;
+
+            case StationKind.Upgrades:
+                Color[] buttons = { new(0.9f, 0.5f, 0.2f), new(0.3f, 0.7f, 0.9f), new(0.6f, 0.9f, 0.4f) };
+                for (int i = 0; i < buttons.Length; i++)
+                    AddPart(station, new Vector3(0.12f, 0.12f, 0.05f), new Vector3(0.1f + i * 0.2f, -size.Y * 0.3f, size.Z / 2f + 0.03f), buttons[i], buttons[i]);
+                break;
+
+            case StationKind.Sell:
+                AddPart(station, new Vector3(size.X * 0.7f, 0.08f, 0.4f), new Vector3(0, -size.Y * 0.2f, size.Z / 2f + 0.16f), dark); // ranura de salida
+                break;
+        }
+    }
+
+    /// <summary>Añade una pieza de caja a una máquina. Si 'glow' existe, la pieza brilla de ese color.</summary>
+    private void AddPart(Node3D parent, Vector3 size, Vector3 position, Color color, Color? glow = null)
+    {
+        parent.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = size },
+            MaterialOverride = glow.HasValue ? Glow(glow.Value) : Mat(color),
+            Position = position,
+        });
+    }
+
+    /// <summary>Material que brilla: para pantallas, luces y franjas luminosas.</summary>
+    private static StandardMaterial3D Glow(Color c) => new()
+    {
+        AlbedoColor = c,
+        EmissionEnabled = true,
+        Emission = c,
+        EmissionEnergyMultiplier = 1.8f,
+    };
 
     private void BuildPlayer()
     {
@@ -1485,6 +1569,16 @@ public partial class Main : Node3D
 
         BuildMenu(hud);
 
+        // Escarcha: se va cubriendo la pantalla mientras estás bajo el agua. Va antes del fundido.
+        _frost = new ColorRect
+        {
+            Color = new Color(0.75f, 0.92f, 1f),
+            Modulate = new Color(1f, 1f, 1f, 0f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        hud.AddChild(_frost);
+        _frost.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+
         // Fundido a negro al congelarse. Va el último para tapar todo.
         _fade = new ColorRect
         {
@@ -1557,8 +1651,12 @@ public partial class Main : Node3D
               + (here.IsFish ? "  ·  parcela de peces" : "")
               + (here.Completed ? "  ✓" : "");
 
+        // Congelamiento: cuanto más tiempo bajo el agua, más escarcha cubre la pantalla.
+        float frost = _player.SubmergedTime > 0 ? (float)(_player.SubmergedTime / Player.DrownSeconds) : 0f;
+        _frost.Modulate = new Color(1f, 1f, 1f, Mathf.Clamp(frost, 0f, 1f) * 0.65f);
+
         _warnLabel.Text = _player.SubmergedTime > 0
-            ? $"¡Sal del agua! {Math.Max(0, Player.DrownSeconds - _player.SubmergedTime):0.0} s"
+            ? $"¡Te estás congelando! Sal del agua: {Math.Max(0, Player.DrownSeconds - _player.SubmergedTime):0.0} s"
             : "";
 
         _messageTimer -= delta;
