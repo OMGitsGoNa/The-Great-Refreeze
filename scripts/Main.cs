@@ -1054,6 +1054,7 @@ public partial class Main : Node3D
         });
         dock.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(15, 1, 15) } });
         AddChild(dock);
+        BuildDockDetails();
 
         // Las celdas del muelle cuentan como ocupadas: desde ellas empieza el hielo.
         for (int x = DockMinCell; x <= DockMaxCell; x++)
@@ -1076,6 +1077,57 @@ public partial class Main : Node3D
 
         BuildPile();
         BuildBucket();
+    }
+
+    /// <summary>
+    /// Detalles del muelle: tablones con separaciones y tonos distintos, bolardos en las esquinas y dos cajas con colisión.
+    /// Todo queda sobre la superficie del muelle (y = 0), así que no cambia dónde se puede colocar el hielo.
+    /// </summary>
+    private void BuildDockDetails()
+    {
+        var rng = new Random(_seed); // tablones con el mismo tono en cada partida guardada
+        for (int i = 0; i < 15; i++)
+        {
+            float shade = 1f + (float)(rng.NextDouble() * 0.16 - 0.08);
+            AddChild(new MeshInstance3D
+            {
+                Mesh = new BoxMesh { Size = new Vector3(15f, 0.02f, 0.9f) },
+                MaterialOverride = Mat(new Color(0.5f * shade, 0.42f * shade, 0.32f * shade)),
+                Position = new Vector3(0, 0.01f, -7f + i),
+            });
+        }
+
+        var metal = Mat(new Color(0.25f, 0.27f, 0.3f));
+        foreach (float x in new[] { -7f, 7f })
+            foreach (float z in new[] { -7f, 7f })
+                AddChild(new MeshInstance3D
+                {
+                    Mesh = new CylinderMesh { TopRadius = 0.18f, BottomRadius = 0.2f, Height = 0.5f },
+                    MaterialOverride = metal,
+                    Position = new Vector3(x, 0.25f, z),
+                });
+
+        AddCrate(new Vector3(6f, 0.3f, -6f), 0.6f);
+        AddCrate(new Vector3(6.6f, 0.25f, -5.2f), 0.5f);
+    }
+
+    /// <summary>Caja de madera con colisión: se puede subir encima y bordear.</summary>
+    private void AddCrate(Vector3 position, float size)
+    {
+        var crate = new StaticBody3D { Position = position };
+        crate.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(size, size, size) },
+            MaterialOverride = Mat(new Color(0.6f, 0.48f, 0.3f)),
+        });
+        crate.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(size + 0.02f, 0.05f, size + 0.02f) },
+            MaterialOverride = Mat(new Color(0.35f, 0.27f, 0.18f)),
+            Position = new Vector3(0, size / 2f - 0.02f, 0),
+        });
+        crate.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(size, size, size) } });
+        AddChild(crate);
     }
 
     /// <summary>
