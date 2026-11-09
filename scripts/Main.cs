@@ -142,6 +142,8 @@ public partial class Main : Node3D
     private AudioStreamPlayer _crackPlayer;   // un solo reproductor para el crujido: no se apilan sonidos
     private AudioStream _chimeSound;
     private AudioStream _dripSound;
+    private AudioStream _thudSound;   // golpe suave de la máquina
+    private ulong _lastCrackMs;       // para no solapar crujidos seguidos de la mano
 
     private bool _menuOpen;
     private bool _menuJustOpened; // evita que la misma tecla E que abre el menú lo cierre
@@ -175,6 +177,7 @@ public partial class Main : Node3D
         AddChild(_crackPlayer);
         _chimeSound = Sounds.Chime();
         _dripSound = Sounds.Drip();
+        _thudSound = Sounds.Thud();
 
         BuildEnvironment();
         BuildWorld();
@@ -433,7 +436,10 @@ public partial class Main : Node3D
         {
             // Cada cubo tiene su crujido y sus partículas, también con Manos ágiles.
             // El de la máquina es más suave y con menos partículas; el mensaje solo sale al colocar a mano.
-            PlayCrack(fromTable ? -18 : quiet ? -10 : -3);
+            if (fromTable)
+                PlaySound(_thudSound, -12); // la máquina: golpe suave
+            else
+                PlayCrack(quiet ? -10 : -3);
             SpawnBurst(at, new Color(0.9f, 0.97f, 1f), fromTable ? 6 : 12);
             if (!quiet)
                 ShowMessage($"+{Fmt(_state.FishPerCube)} peces salvados");
@@ -613,6 +619,12 @@ public partial class Main : Node3D
     /// <summary>Crujido al colocar. Usa un solo reproductor: si ya suena, lo reinicia en vez de apilar sonidos.</summary>
     private void PlayCrack(float volumeDb)
     {
+        // Si el crujido anterior acaba de empezar, no lo cortamos: así no se solapan al poner hielo seguido.
+        ulong now = Time.GetTicksMsec();
+        if (_crackPlayer.Playing && now - _lastCrackMs < 90)
+            return;
+
+        _lastCrackMs = now;
         _crackPlayer.VolumeDb = volumeDb;
         _crackPlayer.Stop();
         _crackPlayer.Play();

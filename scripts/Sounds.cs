@@ -25,6 +25,11 @@ public static class Sounds
     public static AudioStream Drip() => Make(0.25f, t =>
         (float)Math.Sin(2 * Math.PI * (1300 - 900 * t) * t) * (float)Math.Exp(-t * 25) * 0.35f);
 
+    /// <summary>Golpe grave y suave al colocar desde la máquina: sin el agudo del crujido, para que no moleste.</summary>
+    public static AudioStream Thud() => Make(0.22f, t =>
+        Math.Sin(2 * Math.PI * (160 - 60 * t) * t) * Math.Exp(-t * 18) * 0.5
+        + (Rng.NextDouble() * 2 - 1) * Math.Exp(-t * 60) * 0.12);
+
     private static AudioStreamWav Make(float seconds, Func<double, double> sample)
     {
         int count = (int)(seconds * Rate);
