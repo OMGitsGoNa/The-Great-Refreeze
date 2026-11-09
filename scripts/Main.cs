@@ -131,6 +131,10 @@ public partial class Main : Node3D
     private StandardMaterial3D _waterMaterial;
     private ProceduralSkyMaterial _skyMaterial;
     private DirectionalLight3D _sun;
+    private Godot.Environment _environment;
+    private SpotLight3D _flashlight;
+    private bool _flashOn;   // linterna encendida a mano (tecla T)
+    private bool _tWasDown;  // para detectar la pulsación de T una sola vez
     private double _shownProgress = -1;
 
     // Sonidos (generados en código, ver Sounds.cs)
@@ -1032,6 +1036,7 @@ public partial class Main : Node3D
             Sky = new Sky { SkyMaterial = _skyMaterial },
             AmbientLightSource = Godot.Environment.AmbientSource.Sky,
         };
+        _environment = environment;
         AddChild(new WorldEnvironment { Environment = environment });
     }
 
@@ -1691,22 +1696,75 @@ public partial class Main : Node3D
     /// </summary>
     private void UpdateArcticLook()
     {
-        double progress = _state.Progress;
-        if (Math.Abs(progress - _shownProgress) < 0.001)
-            return;
-        _shownProgress = progress;
+        // Se recalcula cada fotograma porque la luz del día cambia con el ciclo.
+        float t = (float)Math.Sqrt(_state.Progress);
+        float day = (float)_state.Daylight; // 0 de noche, 1 a pleno día
 
-        float t = (float)Math.Sqrt(progress);
-        _waterMaterial.AlbedoColor = new Color(0.05f, 0.2f, 0.35f).Lerp(new Color(0.75f, 0.86f, 0.94f), t);
-        _skyMaterial.SkyTopColor = new Color(0.3f, 0.5f, 0.8f).Lerp(new Color(0.7f, 0.85f, 0.97f), t);
-        _skyMaterial.SkyHorizonColor = new Color(0.6f, 0.75f, 0.9f).Lerp(new Color(0.95f, 0.97f, 1f), t);
-        _sun.LightEnergy = 1f + 0.4f * t;
+        Color waterDay = new Color(0.05f, 0.2f, 0.35f).Lerp(new Color(0.75f, 0.86f, 0.94f), t);
+        Color skyTopDay = new Color(0.3f, 0.5f, 0.8f).Lerp(new Color(0.7f, 0.85f, 0.97f), t);
+        Color skyHorizonDay = new Color(0.6f, 0.75f, 0.9f).Lerp(new Color(0.95f, 0.97f, 1f), t);
+        Color nightTop = new Color(0.02f, 0.03f, 0.07f);
+        Color nightHorizon = new Color(0.05f, 0.06f, 0.1f);
+
+        _waterMaterial.AlbedoColor = waterDay * (0.25f + 0.75f * day);
+        _skyMaterial.SkyTopColor = nightTop.Lerp(skyTopDay, day);
+        _skyMaterial.SkyHorizonColor = nightHorizon.Lerp(skyHorizonDay, day);
+        _sun.LightEnergy = (1f + 0.4f * t) * day;
+
+        // De noche la luz ambiente baja y la niebla recorta la vista: solo se ve cerca.
+        _environment.AmbientLightEnergy = 0.15f + 0.85f * day;
+        _environment.FogEnabled = day < 0.99f;
+        _environment.FogDensity = 0.12f * (1f - day);
+        _environment.FogLightColor = nightHorizon;
+    }
+
+    /// <summary>Tecla T: enciende y apaga la linterna (solo si la has comprado y no hay menú abierto).</summary>
+    private void HandleFlashlightKey()
+    {
+        bool down = Input.IsPhysicalKeyPressed(Key.T);
+        if (down && !_tWasDown && _state.HasFlashlight && !_menuOpen)
+            _flashOn = !_flashOn;
+        _tWasDown = down;
+    }
+
+    /// <summary>Día y noche: el sol recorre el cielo y se apaga de noche. Controla también la linterna.</summary>
+    private void UpdateDayNight()
+    {
+        if (!_state.IsNight)
+        {
+            double dayProgress = _state.CycleTime / GameState.DayLength;
+            _sun.RotationDegrees = new Vector3((float)(-10 - 160 * dayProgress), -30f, 0f);
+        }
+
+        EnsureFlashlight();
+        if (_flashlight != null)
+            _flashlight.Visible = _state.HasFlashlight && (_flashOn || (_state.HasAutoFlashlight && _state.IsNight));
+    }
+
+    /// <summary>La linterna es un foco que sale de la cámara. Se crea la primera vez que hace falta.</summary>
+    private void EnsureFlashlight()
+    {
+        if (_flashlight != null || _player?.Camera == null)
+            return;
+
+        _flashlight = new SpotLight3D
+        {
+            SpotRange = 30f,
+            SpotAngle = 32f,
+            LightEnergy = 4f,
+            LightColor = new Color(1f, 0.95f, 0.8f),
+            ShadowEnabled = false,
+            Visible = false,
+        };
+        _player.Camera.AddChild(_flashlight);
     }
 
     private void UpdateHud(double delta)
     {
         RefreshPile();
         UpdateArcticLook();
+        HandleFlashlightKey();
+        UpdateDayNight();
 
         // El cubo se ve azul cuando tiene hielo. El hielo de la mano se ve si no llevas el cubo.
         _bucketMaterial.AlbedoColor = _state.BucketIce >= 1 ? BucketFullColor : BucketEmptyColor;
@@ -1714,7 +1772,7 @@ public partial class Main : Node3D
 
         _fishLabel.Text = Fmt(_state.Fish);
         _moneyLabel.Text = FormatMoney(_state.Money);
-        _progressLabel.Text = $"Ártico {_state.Progress * 100:0.0}%";
+        _progressLabel.Text = $"Ártico {_state.Progress * 100:0.0}%  ·  {(_state.IsNight ? "Noche" : "Día")}";
 
         _handLabel.Text = $"Mano  {_state.HandIce} / {GameState.HandCapacity}";
         _bucketSlot.Visible = _bucketCarried;

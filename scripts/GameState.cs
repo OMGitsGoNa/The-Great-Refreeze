@@ -112,6 +112,10 @@ public sealed class GameState
     public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Capacidad x2 (máx. 200)", 2, 1.5, PileSizes.Length - 1);
     public Upgrade ToughTableUpgrade { get; } = new("Mesa resistente", "+5 s antes de derretirse", 2, 1.5, 5);
 
+    // Linterna: 2 $ y se enciende con T. La automática cuesta 5 $ y se enciende sola de noche.
+    public Upgrade Flashlight { get; } = new("Linterna", "Se enciende con T. Ayuda de noche", 2, 1.0, 1);
+    public Upgrade AutoFlashlight { get; } = new("Linterna automática", "Se enciende sola de noche", 5, 1.0, 1);
+
     public IReadOnlyList<Upgrade> Upgrades { get; }
 
     public GameState()
@@ -120,6 +124,7 @@ public sealed class GameState
         {
             Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
             Tray, Freezer, Shovel, AgileHands, Sprint, Ramps, AutoPlacer, LauncherSpeed,
+            Flashlight, AutoFlashlight,
         };
     }
 
@@ -127,6 +132,21 @@ public sealed class GameState
     public bool HasAgileHands => AgileHands.Level > 0;
     public bool HasSprint => Sprint.Level > 0;
     public bool HasAutoPlacer => AutoPlacer.Level > 0;
+    public bool HasFlashlight => Flashlight.Level > 0;
+    public bool HasAutoFlashlight => AutoFlashlight.Level > 0;
+
+    // Día y noche: 10 minutos de día y 3 de noche. El ciclo empieza al amanecer.
+    public const double DayLength = 600.0;
+    public const double NightLength = 180.0;
+    public const double CycleLength = DayLength + NightLength;
+
+    /// <summary>Segundos dentro del ciclo actual (0 = amanecer).</summary>
+    public double CycleTime { get; set; }
+
+    public bool IsNight => CycleTime >= DayLength;
+
+    /// <summary>Luz del día: 0 de noche, 1 con el sol alto. Sube y baja deprisa al amanecer y al atardecer.</summary>
+    public double Daylight => IsNight ? 0.0 : Math.Min(1.0, Math.Sin(Math.PI * CycleTime / DayLength) * 4.0);
 
     /// <summary>Segundos entre lanzamientos: 10 s sin mejorar, bajando de forma exponencial hasta 0,5 s en el nivel 20.</summary>
     public double LaunchSeconds => 10.0 * Math.Pow(0.05, LauncherSpeed.Level / (double)LauncherSpeed.MaxLevel);
@@ -161,6 +181,7 @@ public sealed class GameState
     /// <summary>Producción de los congeladores y derretimiento del montón.</summary>
     public void Tick(double deltaSeconds)
     {
+        CycleTime = (CycleTime + deltaSeconds) % CycleLength;
         Ice = Math.Min(PileMax, Ice + IcePerSecond * deltaSeconds);
 
         if (IceCubes <= 0)
@@ -318,6 +339,7 @@ public sealed class GameState
         data.Money = Money;
         data.PlacedCubes = PlacedCubes;
         data.MeltTimer = _meltTimer;
+        data.CycleTime = CycleTime;
         data.UpgradeLevels = Upgrades.Select(u => u.Level).ToArray();
     }
 
@@ -331,6 +353,7 @@ public sealed class GameState
         Money = data.Money;
         PlacedCubes = data.PlacedCubes;
         _meltTimer = data.MeltTimer;
+        CycleTime = data.CycleTime % CycleLength;
 
         // Las mejoras nuevas (al final de la lista) no están en partidas antiguas: se quedan en nivel 0.
         int count = Math.Min(data.UpgradeLevels.Length, Upgrades.Count);
@@ -352,6 +375,9 @@ public sealed class GameState
             return false;
 
         if (upgrade == LauncherSpeed && !HasAutoPlacer)
+            return false;
+
+        if (upgrade == AutoFlashlight && !HasFlashlight)
             return false;
 
         Money -= cost;

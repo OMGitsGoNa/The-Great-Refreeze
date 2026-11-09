@@ -230,7 +230,7 @@ public partial class IceGrid : Node3D
         {
             Mesh = mesh,
             MaterialOverride = _material,
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, // el hielo no proyecta sombras propias
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.On, // los montículos proyectan sombra con la posición del sol
         });
         body.AddChild(new CollisionShape3D { Shape = mesh.CreateTrimeshShape() });
         AddChild(body);

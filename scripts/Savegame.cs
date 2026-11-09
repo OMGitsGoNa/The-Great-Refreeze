@@ -19,6 +19,7 @@ public sealed class SaveData
     public double Money { get; set; }
     public int PlacedCubes { get; set; }
     public double MeltTimer { get; set; }
+    public double CycleTime { get; set; }
     public bool BucketCarried { get; set; }
     public bool BearRescued { get; set; }
     public int[] UpgradeLevels { get; set; } = Array.Empty<int>();
