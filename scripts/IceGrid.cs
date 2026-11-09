@@ -30,7 +30,7 @@ public partial class IceGrid : Node3D
     public static readonly Vector3 VisualSize = new(IceCubeSize, IceCubeSize, IceCubeSize);
 
     /// <summary>Altura que sube cada nivel del montículo.</summary>
-    public const float StepHeight = 0.2f;
+    public const float StepHeight = 0.45f;
 
     /// <summary>Nivel máximo. Con 0,2 por nivel la pendiente entre celdas sigue siendo caminable.</summary>
     public const int MaxLevel = 4;
@@ -45,7 +45,7 @@ public partial class IceGrid : Node3D
     private const float Bumpiness = 0.03f;
 
     /// <summary>Profundidad extra de los costados que dan al agua: así se ven marcados.</summary>
-    private const float SideDepth = 0.4f;
+    private const float SideDepth = 1.2f;
 
     private static readonly Vector2I[] Neighbors = { Vector2I.Right, Vector2I.Left, Vector2I.Up, Vector2I.Down };
 
@@ -268,9 +268,16 @@ public partial class IceGrid : Node3D
 
     private int LevelAt(Vector2I cell) => _levels.TryGetValue(cell, out int l) ? l : 0;
 
-    /// <summary>Punto de la base del costado libre en la esquina (x, z).</summary>
-    private static Vector3 Bottom(int x, int z) =>
-        new(x * CellSize, SurfaceY - IceCubeSize - SideDepth, z * CellSize);
+    /// <summary>
+    /// Punto de la base del costado libre en la esquina (x, z). La profundidad varía por esquina
+    /// (fija, la misma en todas las partidas) para que los bloques no parezcan cubos perfectos.
+    /// </summary>
+    private static Vector3 Bottom(int x, int z)
+    {
+        float variation = (CellHash(new Vector2I(x, z)) % 1000u) / 999f; // 0..1
+        float depth = SideDepth * (0.6f + 0.4f * variation);
+        return new Vector3(x * CellSize, SurfaceY - IceCubeSize - depth, z * CellSize);
+    }
 
     /// <summary>Variación de altura fija para cada esquina: la misma en todas las partidas.</summary>
     private static float Bump(int x, int z)
