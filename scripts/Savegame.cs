@@ -20,6 +20,7 @@ public sealed class SaveData
     public int PlacedCubes { get; set; }
     public double MeltTimer { get; set; }
     public double CycleTime { get; set; }
+    public bool RelaxedMode { get; set; }
     public bool BucketCarried { get; set; }
     public bool BearRescued { get; set; }
     public int[] UpgradeLevels { get; set; } = Array.Empty<int>();

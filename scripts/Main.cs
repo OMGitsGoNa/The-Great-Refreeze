@@ -120,6 +120,8 @@ public partial class Main : Node3D
     private const int MaxLaunchRadius = 600;       // hasta dónde busca la máquina un punto libre (en celdas)
     private static readonly Vector3 LaunchPoint = new(0, 1.3f, 0); // de dónde sale el hielo, encima de la máquina
     private StaticBody3D _launcher;
+    private StandardMaterial3D _launcherGlow; // franja del lanzador: cambia de color con su velocidad
+    private OmniLight3D _trayLight;           // luz de la cubitera: crece con su mejora
     private BoxMesh _launchMesh;
     private readonly HashSet<Vector2I> _inFlight = new(); // celdas a las que ya vuela un hielo
     private double _autoPlaceTimer = AutoPlaceSeconds;
@@ -154,6 +156,8 @@ public partial class Main : Node3D
     private Control _pausePanel;
     private bool _titleOpen;
     private bool _pauseOpen;
+    private static bool _relaxedPref;                                  // modo sin prisa elegido (se conserva en partidas nuevas)
+    private readonly System.Collections.Generic.List<Button> _relaxedButtons = new();
     private static bool _skipTitle; // al empezar una partida nueva desde un menú no se vuelve a mostrar el menú principal
 
     private readonly record struct MenuItem(string Text, Action Action, bool Enabled);
@@ -171,6 +175,7 @@ public partial class Main : Node3D
     public override void _Ready()
     {
         SaveData save = SaveGame.Read();
+        _state.RelaxedMode = save == null && _relaxedPref; // partida nueva: conserva el modo elegido en el menú
         _seed = save?.Seed ?? new Random().Next();
         _crackSound = Sounds.Crack();
         _crackPlayer = new AudioStreamPlayer { Stream = _crackSound };
@@ -613,7 +618,7 @@ public partial class Main : Node3D
         _launcher.AddChild(new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(1.0f, 0.05f, 0.05f) },
-            MaterialOverride = Glow(new Color(0.5f, 0.9f, 1f)),
+            MaterialOverride = _launcherGlow = Glow(new Color(0.5f, 0.9f, 1f)),
             Position = new Vector3(0, 0.55f, 0.62f),
         });
         AddChild(_launcher);
@@ -955,12 +960,14 @@ public partial class Main : Node3D
         _titlePanel = BuildMenuPanel("The Great Refreeze", new Color(0.05f, 0.1f, 0.18f, 0.94f),
             new MenuItem("Continuar", ContinueGame, SaveGame.Exists),
             new MenuItem("Nueva partida (borra el guardado)", StartNewGame, true),
+            new MenuItem(RelaxedText(), ToggleRelaxed, true),
             new MenuItem("Salir", QuitGame, true));
 
         _pausePanel = BuildMenuPanel("Pausa", new Color(0f, 0f, 0f, 0.55f),
             new MenuItem("Continuar", ContinueGame, true),
             new MenuItem("Guardar partida", SaveAndNotify, true),
             new MenuItem("Nueva partida (borra el guardado)", StartNewGame, true),
+            new MenuItem(RelaxedText(), ToggleRelaxed, true),
             new MenuItem("Salir al escritorio", QuitGame, true));
     }
 
@@ -993,6 +1000,8 @@ public partial class Main : Node3D
                 CustomMinimumSize = new Vector2(360, 44),
             };
             button.Pressed += item.Action;
+            if (item.Text.StartsWith("Modo sin prisa"))
+                _relaxedButtons.Add(button);
             box.AddChild(button);
         }
         return root;
@@ -1023,6 +1032,18 @@ public partial class Main : Node3D
         _pausePanel.Visible = false;
         _player.Frozen = false;
         Input.MouseMode = Input.MouseModeEnum.Captured;
+    }
+
+    private string RelaxedText() => "Modo sin prisa: " + (_state.RelaxedMode ? "sí" : "no");
+
+    /// <summary>Cambia el modo sin prisa: siempre de día y sin derretimiento. Se aplica al instante.</summary>
+    private void ToggleRelaxed()
+    {
+        _state.RelaxedMode = !_state.RelaxedMode;
+        _relaxedPref = _state.RelaxedMode;
+        foreach (Button b in _relaxedButtons)
+            b.Text = RelaxedText();
+        ShowMessage(_state.RelaxedMode ? "Modo sin prisa activado" : "Modo sin prisa desactivado");
     }
 
     private void SaveAndNotify()
@@ -1170,7 +1191,7 @@ public partial class Main : Node3D
         };
         _snow = new CpuParticles3D
         {
-            Amount = 350,
+            Amount = 900,
             Lifetime = 9.0,
             LocalCoords = false, // las partículas se quedan en el mundo mientras el emisor te sigue
             EmissionShape = CpuParticles3D.EmissionShapeEnum.Box,
@@ -1191,9 +1212,15 @@ public partial class Main : Node3D
         if (_snow == null)
             return;
 
-        float intensity = 1f - (float)_state.Progress; // 1 al principio, 0 con el Ártico recongelado
+        float intensity = _storm ? 1f : 1f - (float)_state.Progress; // 1 al principio, 0 con el Ártico recongelado
         _snow.GlobalPosition = _player.GlobalPosition + new Vector3(0f, 10f, 0f);
-        _snow.Gravity = new Vector3(3.5f * intensity, -1.2f, 1.0f * intensity); // el viento empuja de lado
+        // Tormenta: viento fuerte, copos grandes y rápidos. Normal: viento suave.
+        float wind = _storm ? 12f : 3.5f * intensity;
+        _snow.Gravity = new Vector3(wind, _storm ? -2.5f : -1.2f, _storm ? 4f : intensity);
+        _snow.InitialVelocityMin = _storm ? 2f : 0.3f;
+        _snow.InitialVelocityMax = _storm ? 4f : 0.6f;
+        _snow.ScaleAmountMin = _storm ? 1.5f : 0.8f;
+        _snow.ScaleAmountMax = _storm ? 2.5f : 1.4f;
         _snow.Color = new Color(1f, 1f, 1f, 0.25f + 0.6f * intensity);
         _snow.Emitting = intensity > 0.05f;
     }
@@ -1254,6 +1281,16 @@ public partial class Main : Node3D
 
         MakeStation(StationKind.Tray, "[mantén E] Hacer hielo (cae en la mesa)", "Cubitera",
             new Vector3(-3, 0, -4), new Vector3(1.4f, 1.0f, 0.8f), new Color(0.6f, 0.8f, 1f));
+
+        _trayLight = new OmniLight3D
+        {
+            OmniRange = 3f,
+            LightColor = new Color(0.5f, 0.85f, 1f),
+            LightEnergy = 0f,
+            ShadowEnabled = false,
+            Position = new Vector3(-3, 1.6f, -4),
+        };
+        AddChild(_trayLight);
 
         MakeStation(StationKind.Upgrades, "[E] Máquina de mejoras", "Mejoras",
             new Vector3(4, 0, -4), new Vector3(1.6f, 1.6f, 1.6f), new Color(0.9f, 0.6f, 0.2f));
@@ -1912,7 +1949,8 @@ public partial class Main : Node3D
 
         EnsureFlashlight();
         if (_flashlight != null)
-            _flashlight.Visible = _state.HasFlashlight && (_flashOn || (_state.HasAutoFlashlight && _state.Darkness > 0.35));
+            _flashlight.Visible = _state.HasFlashlight && (_flashOn || (_state.HasAutoFlashlight && _state.Darkness > 0.35))
+                && _flickerOn; // la tormenta hace parpadear la linterna fuera de la base
     }
 
     /// <summary>La linterna es un foco que sale de la cámara. Se crea la primera vez que hace falta.</summary>
@@ -2048,20 +2086,105 @@ void fragment() {
         melt.TweenCallback(Callable.From(print.QueueFree));
     }
 
+    // Tormenta de noche: a veces, al anochecer, hay una tormenta de 30 s. Fuera de la base no se ve la linterna.
+    private bool _storm;
+    private float _stormTimer;
+    private bool _nightRolled;
+    private readonly Random _stormRng = new(2024);
+    private bool _flickerOn = true; // parpadeo irregular de la linterna durante la tormenta
+    private float _flickerTimer;
+
+    /// <summary>La base: la zona de muelle y mesa, a menos de 8 m del centro.</summary>
+    private bool InRefuge()
+    {
+        Vector3 p = _player.GlobalPosition;
+        return new Vector2(p.X, p.Z).Length() < 8f;
+    }
+
+    private void UpdateStorm(double delta)
+    {
+        if (!_state.IsNight)
+        {
+            _nightRolled = false; // al volver la noche se vuelve a tirar
+            _storm = false;
+        }
+        else if (!_nightRolled)
+        {
+            _nightRolled = true;
+            if (_stormRng.NextDouble() < 0.5)
+            {
+                _storm = true;
+                _stormTimer = 60f;
+                ShowMessage("¡Tormenta! Busca refugio en la base o espera a que pase");
+            }
+        }
+
+        if (_storm)
+        {
+            _stormTimer -= (float)delta;
+            if (_stormTimer <= 0f)
+                _storm = false;
+        }
+
+        // Parpadeo irregular de la linterna fuera de la base: se apaga y se enciende a tirones, pero casi siempre hay luz.
+        if (_storm && !InRefuge())
+        {
+            _flickerTimer -= (float)delta;
+            if (_flickerTimer <= 0f)
+            {
+                _flickerOn = _stormRng.NextDouble() < 0.7;
+                _flickerTimer = 0.05f + (float)_stormRng.NextDouble() * 0.35f;
+            }
+        }
+        else
+        {
+            _flickerOn = true;
+        }
+
+        // Niebla extra durante la tormenta, salvo dentro de la base. Nunca se pierde la vista del todo.
+        if (_storm && !InRefuge())
+            _environment.FogDensity += 0.06f;
+    }
+
+    /// <summary>Cada mejora se ve: el cubo brilla con su capacidad, la cubitera ilumina con su mejora y el lanzador cambia de color con su velocidad.</summary>
+    private void ApplyUpgradeVisuals()
+    {
+        float bucketLevel = _state.BucketCapacityUpgrade.Level / (float)_state.BucketCapacityUpgrade.MaxLevel;
+        _bucketMaterial.EmissionEnabled = bucketLevel > 0f;
+        _bucketMaterial.Emission = new Color(0.5f, 0.85f, 1f);
+        _bucketMaterial.EmissionEnergyMultiplier = 0.9f * bucketLevel;
+
+        if (_trayLight != null)
+            _trayLight.LightEnergy = Mathf.Min(0.3f * _state.Tray.Level, 2.5f);
+
+        if (_launcherGlow != null)
+        {
+            float speed = _state.LauncherSpeed.Level / (float)_state.LauncherSpeed.MaxLevel;
+            Color c = new Color(0.5f, 0.9f, 1f).Lerp(new Color(1f, 0.85f, 0.3f), speed);
+            float pulse = speed > 0f ? 1f + 0.2f * Mathf.Sin(Time.GetTicksMsec() / 1000f * 4f) : 1f;
+            _launcherGlow.AlbedoColor = c;
+            _launcherGlow.Emission = c;
+            _launcherGlow.EmissionEnergyMultiplier = (1.8f + 1.5f * speed) * pulse;
+        }
+    }
+
     private void UpdateHud(double delta)
     {
         RefreshPile();
         UpdateArcticLook();
         HandleFlashlightKey();
         UpdateDayNight();
+        UpdateStorm(delta);
 
         // El cubo se ve azul cuando tiene hielo. El hielo de la mano se ve si no llevas el cubo.
         _bucketMaterial.AlbedoColor = _state.BucketIce >= 1 ? BucketFullColor : BucketEmptyColor;
+        ApplyUpgradeVisuals();
         _handCube.Visible = _state.HandIce > 0 && !_bucketCarried;
 
         _fishLabel.Text = Fmt(_state.Fish);
         _moneyLabel.Text = FormatMoney(_state.Money);
-        _progressLabel.Text = $"Ártico {_state.Progress * 100:0.0}%  ·  {(_state.IsNight ? "Noche" : "Día")}";
+        _progressLabel.Text = $"Ártico {_state.Progress * 100:0.0}%  ·  {(_state.IsNight ? "Noche" : "Día")}"
+            + (_storm ? "  ·  Tormenta" : "");
 
         _handLabel.Text = $"Mano  {_state.HandIce} / {GameState.HandCapacity}";
         _bucketSlot.Visible = _bucketCarried;

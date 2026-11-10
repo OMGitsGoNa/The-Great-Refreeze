@@ -144,6 +144,9 @@ public sealed class GameState
     /// <summary>Segundos dentro del ciclo actual (0 = amanecer).</summary>
     public double CycleTime { get; set; } = Twilight; // una partida nueva empieza de día, con la luz ya plena
 
+    /// <summary>Modo sin prisa: siempre de día y el hielo no se derrite. Se elige en el menú y se guarda con la partida.</summary>
+    public bool RelaxedMode { get; set; }
+
     public bool IsNight => CycleTime >= DayLength;
 
     /// <summary>Duración del amanecer y del anochecer, en segundos. Dentro de esos segundos la luz cambia suavemente.</summary>
@@ -210,7 +213,7 @@ public sealed class GameState
     /// <summary>Producción de los congeladores y derretimiento del montón.</summary>
     public void Tick(double deltaSeconds)
     {
-        CycleTime = (CycleTime + deltaSeconds) % CycleLength;
+        CycleTime = RelaxedMode ? Twilight : (CycleTime + deltaSeconds) % CycleLength; // sin prisa: siempre de día
         Ice = Math.Min(PileMax, Ice + IcePerSecond * deltaSeconds);
 
         if (IceCubes <= 0)
@@ -218,6 +221,9 @@ public sealed class GameState
             _meltTimer = 0;
             return;
         }
+
+        if (RelaxedMode)
+            return; // modo sin prisa: el hielo del montón no se derrite
 
         _meltTimer += deltaSeconds;
         if (_meltTimer >= MeltTime)
@@ -369,6 +375,7 @@ public sealed class GameState
         data.PlacedCubes = PlacedCubes;
         data.MeltTimer = _meltTimer;
         data.CycleTime = CycleTime;
+        data.RelaxedMode = RelaxedMode;
         data.UpgradeLevels = Upgrades.Select(u => u.Level).ToArray();
     }
 
@@ -383,6 +390,7 @@ public sealed class GameState
         PlacedCubes = data.PlacedCubes;
         _meltTimer = data.MeltTimer;
         CycleTime = data.CycleTime % CycleLength;
+        RelaxedMode = data.RelaxedMode;
 
         // Las mejoras nuevas (al final de la lista) no están en partidas antiguas: se quedan en nivel 0.
         int count = Math.Min(data.UpgradeLevels.Length, Upgrades.Count);
