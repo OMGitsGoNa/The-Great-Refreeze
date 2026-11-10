@@ -128,6 +128,10 @@ public partial class Main : Node3D
     private int _seed;                  // semilla de las parcelas de peces: se guarda para que la partida sea la misma
     private double _autosaveTimer = AutosaveSeconds;
     private bool _resetting;            // al empezar de cero no se vuelve a guardar
+    private static int _slot = 1;       // ranura de guardado en uso (1 a 3); estática para sobrevivir a la recarga de escena
+    private double _playedSeconds;      // tiempo jugado de esta partida (se guarda)
+    private Control _slotPanel;         // lista de ranuras (nueva partida o cargar)
+    private bool _slotsFromTitle;       // la lista se abrió desde el menú principal (y no desde la pausa)
 
     // Aspecto del Ártico: agua, cielo y sol cambian con el progreso
     private StandardMaterial3D _waterMaterial;
@@ -174,7 +178,7 @@ public partial class Main : Node3D
 
     public override void _Ready()
     {
-        SaveData save = SaveGame.Read();
+        SaveData save = SaveGame.Read(_slot);
         _state.RelaxedMode = save == null && _relaxedPref; // partida nueva: conserva el modo elegido en el menú
         _seed = save?.Seed ?? new Random().Next();
         _crackSound = Sounds.Crack();
@@ -211,7 +215,7 @@ public partial class Main : Node3D
 
     public override void _Notification(int what)
     {
-        if (what == NotificationWMCloseRequest && !_resetting)
+        if (what == NotificationWMCloseRequest && !_resetting && !_titleOpen)
             SaveGameNow();
     }
 
@@ -221,6 +225,7 @@ public partial class Main : Node3D
         if (_titleOpen || _pauseOpen)
             return;
 
+        _playedSeconds += delta;
         _state.Tick(delta);
         _menuJustOpened = false;
         _placeCooldown -= delta;
@@ -277,7 +282,9 @@ public partial class Main : Node3D
         // Esc: abre el menú de pausa o lo cierra (el menú principal no responde a Esc).
         if (@event is InputEventKey esc && esc.Pressed && !esc.Echo && esc.PhysicalKeycode == Key.Escape && !_titleOpen)
         {
-            if (_pauseOpen)
+            if (_slotPanel != null && _slotPanel.Visible)
+                CloseSlots();
+            else if (_pauseOpen)
                 ContinueGame();
             else
                 OpenPause();
@@ -899,7 +906,9 @@ public partial class Main : Node3D
         foreach (var (cell, level, shape) in _grid.PlacedLevels)
             data.Cells.Add(new[] { cell.X, cell.Y, level, shape });
 
-        SaveGame.Write(data);
+        data.PlayedSeconds = _playedSeconds;
+        data.Progress = _state.Progress;
+        SaveGame.Write(_slot, data);
     }
 
     /// <summary>
@@ -909,6 +918,7 @@ public partial class Main : Node3D
     private void LoadGame(SaveData save)
     {
         _state.ReadFrom(save);
+        _playedSeconds = save.PlayedSeconds;
 
         foreach (int[] c in save.Cells)
         {
@@ -941,12 +951,22 @@ public partial class Main : Node3D
         ShowMessage("Partida cargada");
     }
 
-    /// <summary>Borra el guardado y empieza de cero recargando la escena.</summary>
-    private void StartNewGame()
+    /// <summary>Empieza una partida nueva en la ranura (sobrescribe lo que hubiera) y recarga la escena.</summary>
+    private void StartNewGameInSlot(int slot)
     {
+        _slot = slot;
         _resetting = true;
         _skipTitle = true;
-        SaveGame.Delete();
+        SaveGame.Delete(slot);
+        GetTree().ReloadCurrentScene();
+    }
+
+    /// <summary>Carga la partida de la ranura recargando la escena, para que se aplique desde cero.</summary>
+    private void LoadGameInSlot(int slot)
+    {
+        _slot = slot;
+        _resetting = true; // no guardar la escena anterior mientras se recarga
+        _skipTitle = true;
         GetTree().ReloadCurrentScene();
     }
 
@@ -957,18 +977,64 @@ public partial class Main : Node3D
         _overlay = new CanvasLayer { Layer = 20 }; // por encima del HUD
         AddChild(_overlay);
 
-        _titlePanel = BuildMenuPanel("The Great Refreeze", new Color(0.05f, 0.1f, 0.18f, 0.94f),
-            new MenuItem("Continuar", ContinueGame, SaveGame.Exists),
-            new MenuItem("Nueva partida (borra el guardado)", StartNewGame, true),
-            new MenuItem(RelaxedText(), ToggleRelaxed, true),
-            new MenuItem("Salir", QuitGame, true));
+        _titlePanel = BuildTitleScreen();
 
         _pausePanel = BuildMenuPanel("Pausa", new Color(0f, 0f, 0f, 0.55f),
             new MenuItem("Continuar", ContinueGame, true),
             new MenuItem("Guardar partida", SaveAndNotify, true),
-            new MenuItem("Nueva partida (borra el guardado)", StartNewGame, true),
+            new MenuItem("Nueva partida", () => OpenSlots(true), true),
             new MenuItem(RelaxedText(), ToggleRelaxed, true),
             new MenuItem("Salir al escritorio", QuitGame, true));
+    }
+
+    /// <summary>Menú principal: pantalla completa con el título y las opciones de inicio.</summary>
+    private Control BuildTitleScreen()
+    {
+        var root = new Control { Visible = false, MouseFilter = Control.MouseFilterEnum.Stop };
+        root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _overlay.AddChild(root);
+
+        var background = new ColorRect { Color = new Color(0.04f, 0.09f, 0.16f), MouseFilter = Control.MouseFilterEnum.Ignore };
+        background.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        root.AddChild(background);
+
+        var box = new VBoxContainer { CustomMinimumSize = new Vector2(360, 0) };
+        box.AddThemeConstantOverride("separation", 12);
+        box.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center);
+        box.GrowHorizontal = Control.GrowDirection.Both;
+        box.GrowVertical = Control.GrowDirection.Both;
+        root.AddChild(box);
+
+        var title = new Label { Text = "The Great Refreeze", HorizontalAlignment = HorizontalAlignment.Center };
+        title.AddThemeFontSizeOverride("font_size", 56);
+        title.AddThemeColorOverride("font_color", new Color(0.85f, 0.95f, 1f));
+        box.AddChild(title);
+
+        var subtitle = new Label { Text = "Vuelve a congelar el Ártico", HorizontalAlignment = HorizontalAlignment.Center };
+        subtitle.AddThemeColorOverride("font_color", new Color(0.6f, 0.8f, 0.95f));
+        box.AddChild(subtitle);
+
+        box.AddChild(new Control { CustomMinimumSize = new Vector2(0, 28) }); // separación antes de los botones
+
+        AddTitleButton(box, new MenuItem("Nueva partida", () => OpenSlots(true), true));
+        AddTitleButton(box, new MenuItem("Cargar partida", () => OpenSlots(false), SaveGame.AnyExists()));
+        AddTitleButton(box, new MenuItem("Opciones", () => { }, false)); // todavía no hace nada
+        AddTitleButton(box, new MenuItem("Salir", QuitGame, true));
+
+        return root;
+    }
+
+    private static void AddTitleButton(VBoxContainer box, MenuItem item)
+    {
+        var button = new Button
+        {
+            Text = item.Text,
+            Disabled = !item.Enabled,
+            CustomMinimumSize = new Vector2(480, 52),
+        };
+        button.AddThemeFontSizeOverride("font_size", 20);
+        button.Pressed += item.Action;
+        box.AddChild(button);
     }
 
     private Control BuildMenuPanel(string title, Color backdrop, params MenuItem[] items)
@@ -1044,6 +1110,91 @@ public partial class Main : Node3D
         foreach (Button b in _relaxedButtons)
             b.Text = RelaxedText();
         ShowMessage(_state.RelaxedMode ? "Modo sin prisa activado" : "Modo sin prisa desactivado");
+    }
+
+    // ---------------------------------------------------------------- ranuras de guardado
+
+    /// <summary>Abre la lista de partidas: para empezar una nueva (forNew) o para cargar una existente.</summary>
+    private void OpenSlots(bool forNew)
+    {
+        _slotsFromTitle = _titleOpen;
+        if (_titleOpen)
+            _titlePanel.Visible = false;
+        else
+            _pausePanel.Visible = false;
+
+        if (_slotPanel != null)
+        {
+            _slotPanel.Visible = false;
+            _slotPanel.QueueFree();
+        }
+        _slotPanel = BuildSlotPanel(forNew);
+        _slotPanel.Visible = true;
+    }
+
+    private void CloseSlots()
+    {
+        if (_slotPanel != null)
+            _slotPanel.Visible = false;
+
+        if (_slotsFromTitle)
+            _titlePanel.Visible = true;
+        else
+            _pausePanel.Visible = true;
+    }
+
+    private Control BuildSlotPanel(bool forNew)
+    {
+        var root = new Control { MouseFilter = Control.MouseFilterEnum.Stop };
+        root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _overlay.AddChild(root);
+
+        var background = new ColorRect { Color = new Color(0.04f, 0.09f, 0.16f, 0.96f), MouseFilter = Control.MouseFilterEnum.Ignore };
+        background.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        root.AddChild(background);
+
+        var box = new VBoxContainer { CustomMinimumSize = new Vector2(520, 0) };
+        box.AddThemeConstantOverride("separation", 12);
+        box.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center);
+        box.GrowHorizontal = Control.GrowDirection.Both;
+        box.GrowVertical = Control.GrowDirection.Both;
+        root.AddChild(box);
+
+        var heading = new Label { Text = forNew ? "Nueva partida" : "Cargar partida", HorizontalAlignment = HorizontalAlignment.Center };
+        heading.AddThemeFontSizeOverride("font_size", 36);
+        box.AddChild(heading);
+
+        for (int slot = 1; slot <= SaveGame.Slots; slot++)
+        {
+            int s = slot;
+            bool exists = SaveGame.Exists(s);
+            Action action = forNew ? () => StartNewGameInSlot(s) : () => LoadGameInSlot(s);
+            AddTitleButton(box, new MenuItem(SlotText(s, forNew), action, forNew || exists));
+        }
+
+        AddTitleButton(box, new MenuItem("Volver", CloseSlots, true));
+        return root;
+    }
+
+    /// <summary>Texto de una ranura: vacía, o el progreso del Ártico y el tiempo jugado.</summary>
+    private static string SlotText(int slot, bool forNew)
+    {
+        SaveData data = SaveGame.Read(slot);
+        if (data == null)
+            return $"Partida {slot}  ·  Vacía";
+
+        string info = $"Partida {slot}  ·  {data.Progress * 100:0.0} % Ártico  ·  {FormatPlayTime(data.PlayedSeconds)}";
+        return forNew ? info + "  (se sobrescribe)" : info;
+    }
+
+    /// <summary>Tiempo jugado con el formato "xx d xx h xx m".</summary>
+    private static string FormatPlayTime(double seconds)
+    {
+        long total = (long)seconds;
+        long days = total / 86400;
+        long hours = total % 86400 / 3600;
+        long minutes = total % 3600 / 60;
+        return $"{days:00} d {hours:00} h {minutes:00} m";
     }
 
     private void SaveAndNotify()

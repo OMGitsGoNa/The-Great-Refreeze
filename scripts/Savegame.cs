@@ -25,41 +25,62 @@ public sealed class SaveData
     public bool BearRescued { get; set; }
     public int[] UpgradeLevels { get; set; } = Array.Empty<int>();
 
-    /// <summary>Celdas con hielo colocado por el jugador, como pares [x, z].</summary>
+    /// <summary>Segundos jugados en esta partida (se muestra en la lista de partidas).</summary>
+    public double PlayedSeconds { get; set; }
+
+    /// <summary>Progreso del Ártico al guardar, de 0 a 1 (se muestra en la lista de partidas).</summary>
+    public double Progress { get; set; }
+
+    /// <summary>Celdas con hielo colocado por el jugador, como [x, z, altura, forma].</summary>
     public List<int[]> Cells { get; set; } = new();
 }
 
-/// <summary>Lee y escribe la partida en user://savegame.json.</summary>
+/// <summary>
+/// Lee y escribe las partidas en user://savegame_1.json, _2 y _3.
+/// Cada número es una ranura: la partida 1, 2 o 3.
+/// </summary>
 public static class SaveGame
 {
-    private const string FilePath = "user://savegame.json";
+    /// <summary>Número de ranuras de guardado.</summary>
+    public const int Slots = 3;
 
-    public static bool Exists => FileAccess.FileExists(FilePath);
+    private static string PathFor(int slot) => $"user://savegame_{slot}.json";
 
-    /// <summary>Devuelve la partida guardada, o null si no hay o no se puede leer.</summary>
-    public static SaveData Read()
+    public static bool Exists(int slot) => FileAccess.FileExists(PathFor(slot));
+
+    /// <summary>¿Hay alguna partida guardada en alguna ranura?</summary>
+    public static bool AnyExists()
     {
-        if (!Exists)
+        for (int slot = 1; slot <= Slots; slot++)
+            if (Exists(slot))
+                return true;
+        return false;
+    }
+
+    /// <summary>Devuelve la partida de la ranura, o null si no hay o no se puede leer.</summary>
+    public static SaveData Read(int slot)
+    {
+        if (!Exists(slot))
             return null;
 
         try
         {
-            string json = FileAccess.GetFileAsString(FilePath);
+            string json = FileAccess.GetFileAsString(PathFor(slot));
             return JsonSerializer.Deserialize<SaveData>(json);
         }
         catch (Exception e)
         {
-            GD.PushWarning($"No se pudo leer la partida guardada: {e.Message}");
+            GD.PushWarning($"No se pudo leer la partida {slot}: {e.Message}");
             return null;
         }
     }
 
-    public static void Write(SaveData data)
+    public static void Write(int slot, SaveData data)
     {
-        FileAccess file = FileAccess.Open(FilePath, FileAccess.ModeFlags.Write);
+        FileAccess file = FileAccess.Open(PathFor(slot), FileAccess.ModeFlags.Write);
         if (file == null)
         {
-            GD.PushWarning("No se pudo escribir la partida guardada");
+            GD.PushWarning($"No se pudo escribir la partida {slot}");
             return;
         }
 
@@ -67,9 +88,9 @@ public static class SaveGame
         file.Close();
     }
 
-    public static void Delete()
+    public static void Delete(int slot)
     {
-        if (Exists)
-            DirAccess.RemoveAbsolute(ProjectSettings.GlobalizePath(FilePath));
+        if (Exists(slot))
+            DirAccess.RemoveAbsolute(ProjectSettings.GlobalizePath(PathFor(slot)));
     }
 }
