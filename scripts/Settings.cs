@@ -64,7 +64,7 @@ public static class Settings
     /// <summary>Aplica el volumen al bus principal (0 = silencio).</summary>
     public static void ApplyVolume()
     {
-        float db = Volume <= 0.001f ? -80f : AudioServer.LinearToDb(Volume);
+        float db = Volume <= 0.001f ? -80f : Mathf.LinearToDb(Volume);
         AudioServer.SetBusVolumeDb(0, db);
     }
 }
