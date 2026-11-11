@@ -19,7 +19,7 @@ public partial class Main : Node3D
     private const float ReachDistance = 8f;
 
     /// <summary>Tiempo entre cubos cuando mantienes el clic (con Manos ágiles): unos 20 por segundo.</summary>
-    private const float HoldInterval = 0.05f;
+    private const float HoldInterval = 0.04f;
 
     /// <summary>Segundos que hay que mantener E en la cubitera para una carga.</summary>
     private const float ChargeSeconds = 2f;
@@ -284,6 +284,8 @@ public partial class Main : Node3D
         {
             if (_confirmPanel != null)
                 CloseConfirm();
+            else if (_modePanel != null && _modePanel.Visible)
+                CloseMode();
             else if (_slotPanel != null && _slotPanel.Visible)
                 CloseSlots();
             else if (_pauseOpen)

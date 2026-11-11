@@ -20,8 +20,7 @@ public partial class Main
             new MenuItem("Continuar", ContinueGame, true),
             new MenuItem("Guardar partida", SaveWithConfirm, true),
             new MenuItem("Nueva partida", () => OpenSlots(true), true),
-            new MenuItem(RelaxedText(), ToggleRelaxed, true),
-            new MenuItem("Salir al escritorio", QuitGame, true));
+            new MenuItem("Guardar y salir", SaveAndGoToMenu, true));
     }
 
     /// <summary>Menú principal: pantalla completa con el título y las opciones de inicio.</summary>
@@ -145,8 +144,6 @@ public partial class Main
             };
             StyleMenuButton(button);
             button.Pressed += item.Action;
-            if (item.Text.StartsWith("Modo sin prisa"))
-                _relaxedButtons.Add(button);
             box.AddChild(button);
         }
         return root;
@@ -179,16 +176,101 @@ public partial class Main
         Input.MouseMode = Input.MouseModeEnum.Captured;
     }
 
-    private string RelaxedText() => "Modo sin prisa: " + (_state.RelaxedMode ? "sí" : "no");
+    // ---------------------------------------------------------------- modo de juego (al empezar una partida)
 
-    /// <summary>Cambia el modo sin prisa: siempre de día y sin derretimiento. Se aplica al instante.</summary>
-    private void ToggleRelaxed()
+    private Control _modePanel;  // pantalla "Modo de juego"
+    private bool _modeRelaxed;   // elección temporal en esa pantalla (por defecto: no)
+
+    /// <summary>Antes de empezar una partida nueva se elige el modo sin prisa. Por defecto, desactivado.</summary>
+    private void ChooseMode(int slot)
     {
-        _state.RelaxedMode = !_state.RelaxedMode;
-        _relaxedPref = _state.RelaxedMode;
-        foreach (Button b in _relaxedButtons)
-            b.Text = RelaxedText();
-        ShowMessage(_state.RelaxedMode ? "Modo sin prisa activado" : "Modo sin prisa desactivado");
+        CloseConfirm(); // por si venía de "¿sobrescribir?"
+        if (_slotPanel != null)
+            _slotPanel.Visible = false;
+        if (_modePanel != null)
+        {
+            _modePanel.Visible = false;
+            _modePanel.QueueFree();
+        }
+
+        _modeRelaxed = false;
+        var root = new Control { MouseFilter = Control.MouseFilterEnum.Stop };
+        root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _overlay.AddChild(root);
+
+        var background = new ColorRect { Color = new Color(0.04f, 0.09f, 0.16f, 0.96f), MouseFilter = Control.MouseFilterEnum.Ignore };
+        background.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        root.AddChild(background);
+
+        var box = new VBoxContainer { CustomMinimumSize = new Vector2(520, 0) };
+        box.AddThemeConstantOverride("separation", 12);
+        box.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center);
+        box.GrowHorizontal = Control.GrowDirection.Both;
+        box.GrowVertical = Control.GrowDirection.Both;
+        root.AddChild(box);
+
+        var heading = new Label { Text = $"Partida {slot}: modo de juego", HorizontalAlignment = HorizontalAlignment.Center };
+        heading.AddThemeFontSizeOverride("font_size", 32);
+        box.AddChild(heading);
+
+        var info = new Label
+        {
+            Text = "Sin prisa: siempre de día y el hielo del montón no se derrite. Se elige ahora y no se puede cambiar durante la partida.",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+        };
+        box.AddChild(info);
+
+        var modeButton = new Button { Text = ModeText(), CustomMinimumSize = new Vector2(0, 52) };
+        modeButton.AddThemeFontSizeOverride("font_size", 20);
+        StyleMenuButton(modeButton);
+        modeButton.Pressed += () =>
+        {
+            _modeRelaxed = !_modeRelaxed;
+            modeButton.Text = ModeText();
+        };
+        box.AddChild(modeButton);
+
+        var start = new Button { Text = "Empezar partida", CustomMinimumSize = new Vector2(0, 52) };
+        start.AddThemeFontSizeOverride("font_size", 20);
+        StyleMenuButton(start);
+        start.Pressed += () =>
+        {
+            _relaxedPref = _modeRelaxed; // se aplica a la partida nueva al recargar la escena
+            StartNewGameInSlot(slot);
+        };
+        box.AddChild(start);
+
+        var back = new Button { Text = "Volver", CustomMinimumSize = new Vector2(0, 44) };
+        StyleMenuButton(back);
+        back.Pressed += CloseMode;
+        box.AddChild(back);
+
+        _modePanel = root;
+    }
+
+    private string ModeText() => "Modo sin prisa: " + (_modeRelaxed ? "sí" : "no");
+
+    /// <summary>Vuelve de la pantalla de modo a la lista de partidas.</summary>
+    private void CloseMode()
+    {
+        if (_modePanel != null)
+        {
+            _modePanel.Visible = false;
+            _modePanel.QueueFree();
+            _modePanel = null;
+        }
+        if (_slotPanel != null)
+            _slotPanel.Visible = true;
+    }
+
+    /// <summary>Guarda la partida y vuelve al menú principal. Desde allí se sale del juego.</summary>
+    private void SaveAndGoToMenu()
+    {
+        SaveGameNow();
+        _resetting = true;  // se recarga la escena: no volver a guardar al cerrarla
+        _skipTitle = false; // esta vez sí se muestra el menú principal
+        GetTree().ReloadCurrentScene();
     }
 
     // ---------------------------------------------------------------- ranuras de guardado
@@ -251,9 +333,9 @@ public partial class Main
             if (!forNew)
                 action = () => LoadGameInSlot(s);
             else if (exists)
-                action = () => AskOverwrite(s, () => StartNewGameInSlot(s), true);
+                action = () => AskOverwrite(s, () => ChooseMode(s), true);
             else
-                action = () => StartNewGameInSlot(s);
+                action = () => ChooseMode(s);
             // Fila: botón de la partida + botón de papelera para borrarla.
             var row = new HBoxContainer();
             row.AddThemeConstantOverride("separation", 8);

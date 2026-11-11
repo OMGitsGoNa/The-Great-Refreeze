@@ -126,7 +126,75 @@ public partial class Main
                 : "No llevas hielo: coge uno de la mesa con E");
             return;
         }
-        PlaceCell(_aimCell, quiet);
+        // Todo cubo colocado desde la mano o el cubo vuela hasta la celda y entonces se pone de verdad.
+        // Vale tanto para el clic como para Manos ágiles; varios pueden volar a la vez.
+        // Solo se lanza un cubo si hay hielo libre de sobra (sin contar los que ya vuelan) y la celda no está ocupada por otro vuelo.
+        Vector2I cell = _aimCell;
+        if (_flyingCells.Contains(cell))
+            return;
+
+        int available = (_bucketCarried ? _state.BucketIce : _state.HandIce) - _flyingCells.Count;
+        if (available <= 0)
+            return;
+
+        _flyingCells.Add(cell);
+        AnimatePlacement(cell, () =>
+        {
+            _flyingCells.Remove(cell);
+            PlaceCell(cell, quiet);
+        });
+    }
+
+    private readonly HashSet<Vector2I> _flyingCells = new(); // celdas a las que ya vuela un cubo de la mano
+
+    /// <summary>
+    /// Animación de colocación: un cubo sale de la mano (o del cubo), describe un arco,
+    /// gira y cae sobre la celda con un pequeño aplastamiento al aterrizar.
+    /// </summary>
+    private void AnimatePlacement(Vector2I cell, Action onLanded)
+    {
+        Vector3 target = IceGrid.CellCenter(cell) + new Vector3(0f, -IceGrid.IceCubeSize / 2f, 0f);
+
+        Transform3D cam = _player.Camera.GlobalTransform;
+        Vector3 start = _bucketCarried && _bucket != null && _bucket.IsInsideTree()
+            ? _bucket.GlobalPosition + Vector3.Up * 0.2f
+            : cam.Origin + cam.Basis * new Vector3(0.28f, -0.32f, -0.55f); // a la altura de la mano derecha
+
+        var cube = new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = Vector3.One * IceGrid.IceCubeSize },
+            MaterialOverride = new StandardMaterial3D
+            {
+                AlbedoColor = new Color(0.82f, 0.94f, 1f),
+                Roughness = 0.15f,
+                Metallic = 0f,
+            },
+        };
+        AddChild(cube);
+        cube.GlobalPosition = start; // la posición global solo se puede fijar cuando ya está en la escena
+
+        // Punto alto del arco: a medio camino, elevado.
+        Vector3 peak = start.Lerp(target, 0.5f) + Vector3.Up * 0.45f;
+        const float flight = 0.22f; // término medio entre el vuelo lento y el rápido
+
+        Tween tween = CreateTween();
+        tween.TweenMethod(Callable.From<float>(t =>
+        {
+            // Curva de Bézier cuadrática: sale de la mano, sube y baja hasta la celda.
+            float u = 1f - t;
+            cube.GlobalPosition = u * u * start + 2f * u * t * peak + t * t * target;
+        }), 0f, 1f, flight).SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
+
+        tween.Parallel().TweenProperty(cube, "rotation", new Vector3(0.5f, Mathf.Pi * 0.5f, 0.3f), flight);
+
+        // Al aterrizar: aplastamiento corto y vuelta a la forma normal.
+        tween.TweenProperty(cube, "scale", new Vector3(1.12f, 0.8f, 1.12f), 0.05f);
+        tween.TweenProperty(cube, "scale", Vector3.One, 0.08f);
+        tween.TweenCallback(Callable.From(() =>
+        {
+            cube.QueueFree();
+            onLanded();
+        }));
     }
 
     /// <summary>
