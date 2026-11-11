@@ -178,6 +178,7 @@ public partial class Main : Node3D
 
     public override void _Ready()
     {
+        Settings.Load(); // sensibilidad y volumen, guardados aparte de las partidas
         SaveData save = SaveGame.Read(_slot);
         _state.RelaxedMode = save == null && _relaxedPref; // partida nueva: conserva el modo elegido en el menú
         _seed = save?.Seed ?? new Random().Next();
@@ -187,6 +188,7 @@ public partial class Main : Node3D
         _chimeSound = Sounds.Chime();
         _dripSound = Sounds.Drip();
         _thudSound = Sounds.Thud();
+        BuildWind();
 
         BuildEnvironment();
         BuildWorld();
@@ -262,6 +264,7 @@ public partial class Main : Node3D
         }
 
         UpdateAutoPlace(delta); // el lanzador sigue funcionando aunque el menú esté abierto
+        UpdateWind(delta);
         UpdateFootprints(delta);
         UpdateWeather();
         UpdateHud(delta);
@@ -300,6 +303,8 @@ public partial class Main : Node3D
         {
             if (_confirmPanel != null)
                 CloseConfirm();
+            else if (_optionsPanel != null && _optionsPanel.Visible)
+                CloseOptions();
             else if (_modePanel != null && _modePanel.Visible)
                 CloseMode();
             else if (_slotPanel != null && _slotPanel.Visible)

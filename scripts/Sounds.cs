@@ -35,6 +35,47 @@ public static class Sounds
         Math.Sin(2 * Math.PI * (160 - 60 * t) * t) * Math.Exp(-t * 18) * 0.5
         + (Rng.NextDouble() * 2 - 1) * Math.Exp(-t * 60) * 0.12);
 
+    /// <summary>
+    /// Viento de fondo en bucle: ruido grave y suave con un vaivén lento de volumen.
+    /// El vaivén dura exactamente lo que el bucle, así que se repite sin cortes audibles.
+    /// </summary>
+    public static AudioStreamWav WindLoop()
+    {
+        const double seconds = 4.0;
+        int count = (int)(seconds * Rate);
+
+        // Ruido filtrado (paso bajo): solo quedan los graves, que suenan a viento.
+        var samples = new float[count];
+        float low = 0f;
+        for (int i = 0; i < count; i++)
+        {
+            low += 0.04f * ((float)(Rng.NextDouble() * 2 - 1) - low);
+            samples[i] = low;
+        }
+
+        var data = new byte[count * 2];
+        for (int i = 0; i < count; i++)
+        {
+            double t = i / (double)Rate;
+            float swell = 0.6f + 0.4f * (float)Math.Sin(2 * Math.PI * t / seconds);
+            float v = Math.Clamp(samples[i] * swell * 3f, -1f, 1f);
+            short s = (short)(v * 32767);
+            data[i * 2] = (byte)(s & 0xFF);
+            data[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
+        }
+
+        return new AudioStreamWav
+        {
+            Format = AudioStreamWav.FormatEnum.Format16Bits,
+            MixRate = Rate,
+            Stereo = false,
+            Data = data,
+            LoopMode = AudioStreamWav.LoopModeEnum.Forward,
+            LoopBegin = 0,
+            LoopEnd = count,
+        };
+    }
+
     private static AudioStreamWav Make(float seconds, Func<double, double> sample)
     {
         int count = (int)(seconds * Rate);

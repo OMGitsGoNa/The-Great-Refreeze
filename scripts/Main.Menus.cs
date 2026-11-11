@@ -20,8 +20,10 @@ public partial class Main
             new MenuItem("Continuar", ContinueGame, true),
             new MenuItem("Guardar partida", SaveWithConfirm, true),
             new MenuItem("Nueva partida", () => OpenSlots(true), true),
+            new MenuItem("Opciones", OpenOptions, true),
             new MenuItem("Guardar y salir", SaveAndGoToMenu, true));
 
+        BuildOptionsPanel();
         BuildMap(); // mapa de sectores, con la tecla M
     }
 
@@ -56,7 +58,7 @@ public partial class Main
 
         AddTitleButton(box, new MenuItem("Nueva partida", () => OpenSlots(true), true));
         AddTitleButton(box, new MenuItem("Cargar partida", () => OpenSlots(false), SaveGame.AnyExists()));
-        AddTitleButton(box, new MenuItem("Opciones", () => { }, false)); // todavía no hace nada
+        AddTitleButton(box, new MenuItem("Opciones", OpenOptions, true));
         AddTitleButton(box, new MenuItem("Salir", QuitGame, true));
 
         return root;

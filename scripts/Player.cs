@@ -115,8 +115,9 @@ public partial class Player : CharacterBody3D
 
         if (@event is InputEventMouseMotion motion && Input.MouseMode == Input.MouseModeEnum.Captured)
         {
-            RotateY(-motion.Relative.X * MouseSensitivity);
-            _head.RotateX(-motion.Relative.Y * MouseSensitivity);
+            float sens = MouseSensitivity * Settings.Sensitivity;
+            RotateY(-motion.Relative.X * sens);
+            _head.RotateX(-motion.Relative.Y * sens);
 
             Vector3 rotation = _head.Rotation;
             rotation.X = Mathf.Clamp(rotation.X, -1.5f, 1.5f);
