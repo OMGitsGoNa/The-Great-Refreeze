@@ -241,7 +241,6 @@ public partial class Main : Node3D
         {
             UpdateAim();
             UpdateCharge(delta);
-            UpdateAutoPlace(delta);
 
             bool holding = Input.MouseMode == Input.MouseModeEnum.Captured
                            && Input.IsMouseButtonPressed(MouseButton.Left);
@@ -262,6 +261,7 @@ public partial class Main : Node3D
             }
         }
 
+        UpdateAutoPlace(delta); // el lanzador sigue funcionando aunque el menú esté abierto
         UpdateFootprints(delta);
         UpdateWeather();
         UpdateHud(delta);

@@ -11,6 +11,10 @@ public partial class Main
 
     private void OnStationUsed(Station station)
     {
+        // Con el menú de mejoras abierto, E solo sirve para cerrarlo (lo hace Main._UnhandledInput).
+        if (_menuOpen)
+            return;
+
         switch (station.Kind)
         {
             case StationKind.Pile:
@@ -26,7 +30,8 @@ public partial class Main
                 break;
 
             case StationKind.Upgrades:
-                OpenMenu();
+                if (!_menuOpen) // con el menú abierto, E lo cierra (lo gestiona Main), no lo reabre
+                    OpenMenu();
                 break;
 
             case StationKind.Sell:
@@ -180,27 +185,32 @@ public partial class Main
         if (_autoPlaceTimer > 0)
             return;
 
-        _autoPlaceTimer = _state.LaunchSeconds;
-        AutoPlaceNearPlayer();
+        // Si lanza, espera el cooldown completo. Si no hay hielo en la mesa, se queda listo
+        // (timer a 0) y lanza en cuanto aparezca hielo, sin esperar otro ciclo entero.
+        if (AutoPlaceNearPlayer())
+            _autoPlaceTimer = _state.LaunchSeconds;
+        else
+            _autoPlaceTimer = 0;
     }
 
     /// <summary>
     /// La máquina lanza un hielo al punto libre más cercano a ella (el centro del muelle).
     /// Coge el hielo directamente de la mesa; si la mesa está vacía, espera.
     /// </summary>
-    private void AutoPlaceNearPlayer()
+    private bool AutoPlaceNearPlayer()
     {
         if (_launcher == null || _state.IceCubes <= 0)
-            return;
+            return false;
 
         Vector2I origin = IceGrid.WorldToCell(_launcher.Position);
         if (!FindNearestFreeCell(origin, out Vector2I target))
-            return;
+            return false;
 
         if (!_state.TakeOneFromPile())
-            return;
+            return false;
 
         LaunchIce(target);
+        return true;
     }
 
     /// <summary>
