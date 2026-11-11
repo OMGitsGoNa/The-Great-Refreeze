@@ -97,7 +97,7 @@ public sealed class GameState
     // Precios: el cubo cuesta 5 $; su primera mejora de capacidad, 1 $.
     public Upgrade Bucket { get; } = new("Cubo", "Lleva hielo sin que se derrita", 5, 1.0, 1);
     // Capacidad: 10 de base + 10 por mejora, hasta 200 (19 mejoras). Crece x1,45 por nivel.
-    public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad (máx. 200)", 1, 1.45, 19);
+    public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad por nivel", 1, 1.45, 19);
     public Upgrade Tray { get; } = new("Cubitera grande", "+1 hielo por carga", 1, 1.6);
     public Upgrade Freezer { get; } = new("Congelador", "+0,5 hielo/s al montón", 4, 1.35);
     public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 5, 1.8);
@@ -110,18 +110,18 @@ public sealed class GameState
     public Upgrade LauncherSpeed { get; } = new("Velocidad del lanzador", "Lanza más rápido: 10 s → 0,5 s", 10, Math.Pow(100, 1.0 / 19), 20);
 
     // Mesa: ambas empiezan en 2 $ y suben progresivamente.
-    public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Capacidad x2 (máx. 200)", 2, 1.5, PileSizes.Length - 1);
+    public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Más hielo en la mesa", 2, 1.5, PileSizes.Length - 1);
     public Upgrade ToughTableUpgrade { get; } = new("Mesa resistente", "+5 s antes de derretirse", 2, 1.5, 5);
 
     // Linterna: 2 $ y se enciende con T. La automática cuesta 5 $ y se enciende sola de noche.
-    public Upgrade Flashlight { get; } = new("Linterna", "Se enciende con T. Ayuda de noche", 2, 1.0, 1);
+    public Upgrade Flashlight { get; } = new("Linterna", "Se enciende con T de noche", 2, 1.0, 1);
     public Upgrade AutoFlashlight { get; } = new("Linterna automática", "Se enciende sola de noche", 5, 1.0, 1);
 
     // Brazos largos: +1 m de alcance por nivel, 10 niveles (de 3 m a 13 m). Precio provisional.
-    public Upgrade LongArms { get; } = new("Brazos largos", "+1 m de alcance de colocación por nivel (máx. 10)", 20, 1.5, 10);
+    public Upgrade LongArms { get; } = new("Brazos largos", "+1 m de alcance por nivel", 20, 1.5, 10);
 
     // Colocación rápida: con Manos ágiles, cada nivel quita 0,05 s entre colocaciones (base 0,25 s, mínimo 0,05 s). Precio provisional.
-    public Upgrade FastHands { get; } = new("Colocación rápida", "-0,05 s entre colocaciones con Manos ágiles (mín. 0,05 s)", 15, 1.6, 4);
+    public Upgrade FastHands { get; } = new("Colocación rápida", "Colocas más rápido con Manos ágiles", 15, 1.6, 4);
 
     public IReadOnlyList<Upgrade> Upgrades { get; }
 

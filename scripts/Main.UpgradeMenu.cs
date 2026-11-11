@@ -13,7 +13,8 @@ public partial class Main
     {
         _menuOpen = true;
         _menuJustOpened = true;
-        _menu.Visible = true; // el juego sigue corriendo por detrás (no se congela ni el mundo ni el jugador)
+        _menu.Visible = true; // el mundo sigue corriendo por detrás, pero el jugador no se mueve ni mira
+        _player.Frozen = true;
         Input.MouseMode = Input.MouseModeEnum.Visible;
         RefreshMenu();
     }
@@ -22,6 +23,7 @@ public partial class Main
     {
         _menuOpen = false;
         _menu.Visible = false;
+        _player.Frozen = false;
         Input.MouseMode = Input.MouseModeEnum.Captured;
     }
 
@@ -75,13 +77,14 @@ public partial class Main
                 status = needsLauncher ? "requiere el lanzador"
                     : needsHands ? "requiere Manos ágiles"
                     : "requiere el cubo";
-            row.Info.Text = $"{u.Name}  ({status})\n{u.Description}";
-
-            // Debajo de la descripción, lo que tienes ahora mismo con esa mejora.
+            // Siempre dos líneas: nombre y estado, y una descripción corta.
+            // En las mejoras de tiempo y alcance, la descripción dice lo que tienes ahora mismo.
+            string desc = u.Description;
             if (u == _state.FastHands)
-                row.Info.Text += $"\nAhora: una colocación cada {_state.PlaceInterval:0.00} s";
+                desc = $"-0,05 s por nivel · ahora {_state.PlaceInterval:0.00} s";
             else if (u == _state.LongArms)
-                row.Info.Text += $"\nAhora: alcance de {_state.ArmReach:0} m";
+                desc = $"+1 m por nivel · ahora {_state.ArmReach:0} m";
+            row.Info.Text = $"{u.Name}  ({status})\n{desc}";
 
             if (u.IsMaxed)
             {
@@ -107,10 +110,14 @@ public partial class Main
         _menu.GrowHorizontal = Control.GrowDirection.Both;
         _menu.GrowVertical = Control.GrowDirection.Both;
         hud.AddChild(_menu);
+        _menu.AddThemeStyleboxOverride("panel", PanelStyle(MachinePanelBg, MachineBorder));
 
         var box = new VBoxContainer();
+        box.AddThemeConstantOverride("separation", 14);
         _menu.AddChild(box);
-        box.AddChild(new Label { Text = "Máquina de mejoras", HorizontalAlignment = HorizontalAlignment.Center });
+        var machineTitle = new Label { Text = "Máquina de mejoras", HorizontalAlignment = HorizontalAlignment.Center };
+        machineTitle.AddThemeFontSizeOverride("font_size", 28);
+        box.AddChild(machineTitle);
 
         // Dos columnas: cada mejora ocupa una celda de la cuadrícula.
         var grid = new GridContainer { Columns = 2 };
@@ -124,7 +131,7 @@ public partial class Main
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 AutowrapMode = TextServer.AutowrapMode.WordSmart, // si un texto aún es largo, salta de línea
             };
-            var button = new Button { CustomMinimumSize = new Vector2(220, 0) };
+            var button = new Button { CustomMinimumSize = new Vector2(190, 0) };
             StyleMachineButton(button);
             button.Pressed += () => BuyUpgrade(upgrade);
 

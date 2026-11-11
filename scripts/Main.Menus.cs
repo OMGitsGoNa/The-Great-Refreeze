@@ -100,6 +100,30 @@ public partial class Main
 
     private static void StyleMachineButton(Button b) => ApplyButtonStyle(b, MachineBg, MachineBorder);
 
+    // Paneles: fondo oscuro con esquinas redondeadas, borde fino y más aire por dentro.
+    private static readonly Color MenuPanelBg = new(0.05f, 0.11f, 0.19f, 0.97f);
+    private static readonly Color MachinePanelBg = new(0.12f, 0.09f, 0.05f, 0.97f);
+
+    private static StyleBoxFlat PanelStyle(Color bg, Color border) => new StyleBoxFlat
+    {
+        BgColor = bg,
+        BorderColor = border,
+        BorderWidthLeft = 2,
+        BorderWidthRight = 2,
+        BorderWidthTop = 2,
+        BorderWidthBottom = 2,
+        CornerRadiusTopLeft = 14,
+        CornerRadiusTopRight = 14,
+        CornerRadiusBottomLeft = 14,
+        CornerRadiusBottomRight = 14,
+        ContentMarginLeft = 26,
+        ContentMarginRight = 26,
+        ContentMarginTop = 22,
+        ContentMarginBottom = 22,
+        ShadowColor = new Color(0f, 0f, 0f, 0.5f),
+        ShadowSize = 12,
+    };
+
     private static void AddTitleButton(VBoxContainer box, MenuItem item)
     {
         var button = new Button
@@ -125,6 +149,7 @@ public partial class Main
         root.AddChild(shade);
 
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(420, 0) };
+        panel.AddThemeStyleboxOverride("panel", PanelStyle(MenuPanelBg, MenuBorder));
         panel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center);
         panel.GrowHorizontal = Control.GrowDirection.Both;
         panel.GrowVertical = Control.GrowDirection.Both;
@@ -132,7 +157,9 @@ public partial class Main
 
         var box = new VBoxContainer();
         panel.AddChild(box);
-        box.AddChild(new Label { Text = title, HorizontalAlignment = HorizontalAlignment.Center });
+        var heading = new Label { Text = title, HorizontalAlignment = HorizontalAlignment.Center };
+        heading.AddThemeFontSizeOverride("font_size", 28);
+        box.AddChild(heading);
 
         foreach (MenuItem item in items)
         {
@@ -429,6 +456,7 @@ public partial class Main
         root.AddChild(shade);
 
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(480, 0) };
+        panel.AddThemeStyleboxOverride("panel", PanelStyle(MenuPanelBg, MenuBorder));
         panel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center);
         panel.GrowHorizontal = Control.GrowDirection.Both;
         panel.GrowVertical = Control.GrowDirection.Both;
