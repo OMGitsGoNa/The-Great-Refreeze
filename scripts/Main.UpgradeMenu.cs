@@ -25,9 +25,18 @@ public partial class Main
         Input.MouseMode = Input.MouseModeEnum.Captured;
     }
 
+    private AudioStream _purchaseSound; // se crea la primera vez que compras algo
+
     private void BuyUpgrade(Upgrade upgrade)
     {
         bool bought = _state.TryBuy(upgrade);
+        if (bought)
+        {
+            // Sonido de compra: un tintineo corto y alegre.
+            _purchaseSound ??= Sounds.Purchase();
+            PlaySound(_purchaseSound, -6);
+        }
+
         if (bought && upgrade == _state.Ramps)
             BuildRampsPurchased();
         if (bought && upgrade == _state.AutoPlacer)

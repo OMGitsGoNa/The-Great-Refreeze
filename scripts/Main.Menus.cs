@@ -254,7 +254,35 @@ public partial class Main
                 action = () => AskOverwrite(s, () => StartNewGameInSlot(s), true);
             else
                 action = () => StartNewGameInSlot(s);
-            AddTitleButton(box, new MenuItem(SlotText(s, forNew), action, forNew || exists));
+            // Fila: botón de la partida + botón de papelera para borrarla.
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 8);
+            box.AddChild(row);
+
+            var slotButton = new Button
+            {
+                Text = SlotText(s, forNew),
+                Disabled = !(forNew || exists),
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                CustomMinimumSize = new Vector2(0, 52),
+            };
+            slotButton.AddThemeFontSizeOverride("font_size", 20);
+            StyleMenuButton(slotButton);
+            slotButton.Pressed += action;
+            row.AddChild(slotButton);
+
+            var trash = new Button
+            {
+                CustomMinimumSize = new Vector2(52, 52),
+                Disabled = !exists,
+                TooltipText = $"Borrar la partida {s}",
+            };
+            StyleMenuButton(trash);
+            var icon = new TrashIcon();
+            icon.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect); // ocupa todo el botón; el dibujo ya va centrado
+            trash.AddChild(icon);
+            trash.Pressed += () => AskDelete(s, forNew);
+            row.AddChild(trash);
         }
 
         AddTitleButton(box, new MenuItem("Volver", CloseSlots, true));
@@ -288,7 +316,22 @@ public partial class Main
     private bool _confirmFromSlots;  // se abrió desde la lista de partidas (y hay que volver a ella al cancelar)
 
     /// <summary>Pregunta antes de sobrescribir una partida. Confirmar ejecuta la acción; Cancelar vuelve atrás.</summary>
-    private void AskOverwrite(int slot, Action onConfirm, bool fromSlots)
+    private void AskOverwrite(int slot, Action onConfirm, bool fromSlots) =>
+        AskConfirm($"¿Sobrescribir la partida {slot}?", "Se perderá el progreso que tiene guardado.", onConfirm, fromSlots);
+
+    /// <summary>Pide confirmación para borrar una partida y, si se confirma, vuelve a dibujar la lista.</summary>
+    private void AskDelete(int slot, bool forNew)
+    {
+        AskConfirm($"¿Borrar la partida {slot}?", "Se borrará para siempre. No se puede deshacer.", () =>
+        {
+            SaveGame.Delete(slot);
+            CloseConfirm();
+            OpenSlots(forNew);
+        }, true);
+    }
+
+    /// <summary>Ventana de confirmación genérica con título, texto y botones Confirmar / Cancelar.</summary>
+    private void AskConfirm(string title, string body, Action onConfirm, bool fromSlots)
     {
         CloseConfirm();
         _confirmFromSlots = fromSlots;
@@ -312,8 +355,8 @@ public partial class Main
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 14);
         panel.AddChild(box);
-        box.AddChild(new Label { Text = $"¿Sobrescribir la partida {slot}?", HorizontalAlignment = HorizontalAlignment.Center });
-        box.AddChild(new Label { Text = "Se perderá el progreso que tiene guardado.", HorizontalAlignment = HorizontalAlignment.Center });
+        box.AddChild(new Label { Text = title, HorizontalAlignment = HorizontalAlignment.Center });
+        box.AddChild(new Label { Text = body, HorizontalAlignment = HorizontalAlignment.Center });
 
         var yes = new Button { Text = "Confirmar", CustomMinimumSize = new Vector2(0, 44) };
         yes.Pressed += () => onConfirm();

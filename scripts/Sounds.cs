@@ -25,6 +25,11 @@ public static class Sounds
     public static AudioStream Drip() => Make(0.25f, t =>
         (float)Math.Sin(2 * Math.PI * (1300 - 900 * t) * t) * (float)Math.Exp(-t * 25) * 0.35f);
 
+    /// <summary>Tintineo corto de compra: dos notas que suben.</summary>
+    public static AudioStream Purchase() => Make(0.35f, t =>
+        (Math.Sin(2 * Math.PI * 660 * t) * (t < 0.12 ? 1.0 : 0.0) * Math.Exp(-t * 12)
+        + Math.Sin(2 * Math.PI * 880 * t) * (t >= 0.12 ? 1.0 : 0.0) * Math.Exp(-(t - 0.12) * 12)) * 0.5);
+
     /// <summary>Golpe grave y suave al colocar desde la máquina: sin el agudo del crujido, para que no moleste.</summary>
     public static AudioStream Thud() => Make(0.22f, t =>
         Math.Sin(2 * Math.PI * (160 - 60 * t) * t) * Math.Exp(-t * 18) * 0.5
