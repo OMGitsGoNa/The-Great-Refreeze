@@ -162,6 +162,7 @@ public partial class Main : Node3D
     private bool _pauseOpen;
     private static bool _relaxedPref;                                  // modo sin prisa elegido (se conserva en partidas nuevas)
     private readonly System.Collections.Generic.List<Button> _relaxedButtons = new();
+    private static bool _devPref;   // partida nueva en modo dev (temporal; se elige al crear la partida)
     private static bool _skipTitle; // al empezar una partida nueva desde un menú no se vuelve a mostrar el menú principal
 
     private readonly record struct MenuItem(string Text, Action Action, bool Enabled);
@@ -200,7 +201,8 @@ public partial class Main : Node3D
         if (save != null)
             LoadGame(save);
         else
-            DevMode.Apply(_state); // MODO DEV: quitar esta línea al eliminar DevMode.cs (solo en partida nueva)
+            if (_devPref)
+                DevMode.Apply(_state); // MODO DEV (temporal): solo si lo elegiste al crear la partida
 
         BuildOverlays();
         bool showTitle = !_skipTitle;

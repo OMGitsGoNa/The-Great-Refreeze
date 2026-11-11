@@ -18,7 +18,13 @@ public sealed class Upgrade
     public int Level { get; set; }
 
     public bool IsMaxed => Level >= MaxLevel;
-    public double Cost => BaseCost * Math.Pow(CostGrowth, Level);
+    /// <summary>
+    /// Escala de todos los precios. Con la meta en 100 000 cubos, el dinero que entra es 10 veces menor,
+    /// así que los precios bajan en la misma proporción. Cambia este número para ajustar toda la economía de mejoras.
+    /// </summary>
+    public const double PriceScale = 1.0;
+
+    public double Cost => BaseCost * PriceScale * Math.Pow(CostGrowth, Level);
 
     public Upgrade(string name, string description, double baseCost, double costGrowth, int maxLevel = int.MaxValue)
     {
@@ -39,16 +45,16 @@ public sealed class Upgrade
 public sealed class GameState
 {
     /// <summary>Cubos que hay que colocar en total para recongelar el Ártico.</summary>
-    public const int GoalCubes = 1_000_000;
+    public static int GoalCubes => Balance.Data.GoalCubes; // desde balance.json
 
     /// <summary>Hielo por segundo que produce cada congelador (va al montón).</summary>
     public const double FreezerRate = 0.5;
 
     /// <summary>Dinero que pagan las empresas por cada pez enviado (1 pez = 1 cubo = 0,05 $).</summary>
-    public const double FishPrice = 0.05;
+    public static double FishPrice => Balance.Data.FishPrice; // desde balance.json
 
     /// <summary>Peces base al completar un sector. Se multiplica por el anillo.</summary>
-    public const double SectorBonus = 10;
+    public static double SectorBonus => Balance.Data.SectorBonus; // desde balance.json
 
     /// <summary>Distancia, en cubos, desde el muelle a la que está el oso polar.</summary>
     public const int BearDistanceCubes = 50;
@@ -95,33 +101,40 @@ public sealed class GameState
     private double _meltTimer;
 
     // Precios: el cubo cuesta 5 $; su primera mejora de capacidad, 1 $.
-    public Upgrade Bucket { get; } = new("Cubo", "Lleva hielo sin que se derrita", 5, 1.0, 1);
+    public Upgrade Bucket { get; } = Make("Bucket", "Cubo", "Lleva hielo sin que se derrita");
     // Capacidad: 10 de base + 10 por mejora, hasta 200 (19 mejoras). Crece x1,45 por nivel.
-    public Upgrade BucketCapacityUpgrade { get; } = new("Cubo más grande", "+10 de capacidad por nivel", 1, 1.45, 19);
-    public Upgrade Tray { get; } = new("Cubitera grande", "+1 hielo por carga", 1, 1.6);
-    public Upgrade Freezer { get; } = new("Congelador", "+0,5 hielo/s al montón", 4, 1.35);
-    public Upgrade Shovel { get; } = new("Pala de colocación", "+50% de peces por cubo", 5, 1.8);
-    public Upgrade AgileHands { get; } = new("Manos ágiles", "Mantén clic para colocar seguido", 8, 1.0, 1);
-    public Upgrade Sprint { get; } = new("Sprint", "Mantén Shift para correr", 25, 1.0, 1);
-    public Upgrade Ramps { get; } = new("Rampas", "Bajadas del muelle al hielo", 5, 1.0, 1);
-    public Upgrade AutoPlacer { get; } = new("Lanzador de hielo", "Lanza 1 hielo de la mesa cada 10 s", 60, 1.0, 1);
+    public Upgrade BucketCapacityUpgrade { get; } = Make("BucketCapacity", "Cubo más grande", "+10 de capacidad por nivel");
+    public Upgrade Tray { get; } = Make("Tray", "Cubitera grande", "+1 hielo por carga");
+    public Upgrade Freezer { get; } = Make("Freezer", "Congelador", "+0,5 hielo/s al montón");
+    public Upgrade Shovel { get; } = Make("Shovel", "Pala de colocación", "+50% de peces por cubo");
+    public Upgrade AgileHands { get; } = Make("AgileHands", "Manos ágiles", "Mantén clic para colocar seguido");
+    public Upgrade Sprint { get; } = Make("Sprint", "Sprint", "Mantén Shift para correr");
+    public Upgrade Ramps { get; } = Make("Ramps", "Rampas", "Bajadas del muelle al hielo");
+    public Upgrade AutoPlacer { get; } = Make("AutoPlacer", "Lanzador de hielo", "Lanza 1 hielo de la mesa cada 10 s");
 
     // Coste de 10 $ en el nivel 1 y 1000 $ en el nivel 20: crece x1,274 por nivel.
-    public Upgrade LauncherSpeed { get; } = new("Velocidad del lanzador", "Lanza más rápido: 10 s → 0,5 s", 10, Math.Pow(100, 1.0 / 19), 20);
+    public Upgrade LauncherSpeed { get; } = Make("LauncherSpeed", "Velocidad del lanzador", "Lanza más rápido: 10 s → 0,5 s");
 
     // Mesa: ambas empiezan en 2 $ y suben progresivamente.
-    public Upgrade TableCapacityUpgrade { get; } = new("Mesa más grande", "Más hielo en la mesa", 2, 1.5, PileSizes.Length - 1);
-    public Upgrade ToughTableUpgrade { get; } = new("Mesa resistente", "+5 s antes de derretirse", 2, 1.5, 5);
+    public Upgrade TableCapacityUpgrade { get; } = Make("TableCapacity", "Mesa más grande", "Más hielo en la mesa", Math.Min(Balance.Price("TableCapacity").MaxLevel, PileSizes.Length - 1));
+    public Upgrade ToughTableUpgrade { get; } = Make("ToughTable", "Mesa resistente", "+5 s antes de derretirse");
 
     // Linterna: 2 $ y se enciende con T. La automática cuesta 5 $ y se enciende sola de noche.
-    public Upgrade Flashlight { get; } = new("Linterna", "Se enciende con T de noche", 2, 1.0, 1);
-    public Upgrade AutoFlashlight { get; } = new("Linterna automática", "Se enciende sola de noche", 5, 1.0, 1);
+    public Upgrade Flashlight { get; } = Make("Flashlight", "Linterna", "Se enciende con T de noche");
+    public Upgrade AutoFlashlight { get; } = Make("AutoFlashlight", "Linterna automática", "Se enciende sola de noche");
 
     // Brazos largos: +1 m de alcance por nivel, 10 niveles (de 3 m a 13 m). Precio provisional.
-    public Upgrade LongArms { get; } = new("Brazos largos", "+1 m de alcance por nivel", 20, 1.5, 10);
+    public Upgrade LongArms { get; } = Make("LongArms", "Brazos largos", "+1 m de alcance por nivel");
 
     // Colocación rápida: con Manos ágiles, cada nivel quita 0,05 s entre colocaciones (base 0,25 s, mínimo 0,05 s). Precio provisional.
-    public Upgrade FastHands { get; } = new("Colocación rápida", "Colocas más rápido con Manos ágiles", 15, 1.6, 4);
+    public Upgrade FastHands { get; } = Make("FastHands", "Colocación rápida", "Colocas más rápido con Manos ágiles");
+
+    /// <summary>Crea una mejora con su precio leído de balance.json (clave = nombre en el archivo).</summary>
+    private static Upgrade Make(string key, string name, string description, int? maxLevelOverride = null)
+    {
+        UpgradePrice p = Balance.Price(key);
+        return new Upgrade(name, description, p.BaseCost, p.Growth, maxLevelOverride ?? p.MaxLevel);
+    }
 
     public IReadOnlyList<Upgrade> Upgrades { get; }
 
@@ -208,7 +221,7 @@ public sealed class GameState
     public double IcePerSecond => Freezer.Level * FreezerRate;
 
     /// <summary>Un cubo colocado salva 1 pez, más la pala.</summary>
-    public double FishPerCube => 1 + 0.5 * Shovel.Level;
+    public double FishPerCube => 1 + Balance.Data.ShovelFishPerLevel * Shovel.Level;
 
     /// <summary>Cubos enteros en el montón.</summary>
     public int IceCubes => (int)Math.Floor(Ice);

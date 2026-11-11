@@ -211,6 +211,7 @@ public partial class Main
 
     private Control _modePanel;  // pantalla "Modo de juego"
     private bool _modeRelaxed;   // elección temporal en esa pantalla (por defecto: no)
+    private bool _modeDev;       // modo dev temporal, elegido en esa misma pantalla (por defecto: no)
 
     /// <summary>Antes de empezar una partida nueva se elige el modo sin prisa. Por defecto, desactivado.</summary>
     private void ChooseMode(int slot)
@@ -225,6 +226,7 @@ public partial class Main
         }
 
         _modeRelaxed = false;
+        _modeDev = false;
         var root = new Control { MouseFilter = Control.MouseFilterEnum.Stop };
         root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _overlay.AddChild(root);
@@ -262,12 +264,24 @@ public partial class Main
         };
         box.AddChild(modeButton);
 
+        // Modo dev (temporal): atajos de prueba para esta partida.
+        var devButton = new Button { Text = DevText(), CustomMinimumSize = new Vector2(0, 52) };
+        devButton.AddThemeFontSizeOverride("font_size", 20);
+        StyleMenuButton(devButton);
+        devButton.Pressed += () =>
+        {
+            _modeDev = !_modeDev;
+            devButton.Text = DevText();
+        };
+        box.AddChild(devButton);
+
         var start = new Button { Text = "Empezar partida", CustomMinimumSize = new Vector2(0, 52) };
         start.AddThemeFontSizeOverride("font_size", 20);
         StyleMenuButton(start);
         start.Pressed += () =>
         {
             _relaxedPref = _modeRelaxed; // se aplica a la partida nueva al recargar la escena
+            _devPref = _modeDev;         // igual con el modo dev
             StartNewGameInSlot(slot);
         };
         box.AddChild(start);
@@ -281,6 +295,8 @@ public partial class Main
     }
 
     private string ModeText() => "Modo sin prisa: " + (_modeRelaxed ? "sí" : "no");
+
+    private string DevText() => "Modo dev (pruebas): " + (_modeDev ? "sí" : "no");
 
     /// <summary>Vuelve de la pantalla de modo a la lista de partidas.</summary>
     private void CloseMode()
