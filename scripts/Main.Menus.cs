@@ -21,6 +21,8 @@ public partial class Main
             new MenuItem("Guardar partida", SaveWithConfirm, true),
             new MenuItem("Nueva partida", () => OpenSlots(true), true),
             new MenuItem("Guardar y salir", SaveAndGoToMenu, true));
+
+        BuildMap(); // mapa de sectores, con la tecla M
     }
 
     /// <summary>Menú principal: pantalla completa con el título y las opciones de inicio.</summary>

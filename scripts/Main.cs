@@ -269,6 +269,22 @@ public partial class Main : Node3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        // Mapa de sectores: M o Esc lo cierran; no abre nada más mientras está abierto.
+        if (_mapOpen)
+        {
+            if (@event is InputEventKey mapKey && mapKey.Pressed && !mapKey.Echo
+                && (mapKey.PhysicalKeycode == Key.M || mapKey.PhysicalKeycode == Key.Escape))
+                CloseMap();
+            return;
+        }
+
+        if (@event is InputEventKey mKey && mKey.Pressed && !mKey.Echo && mKey.PhysicalKeycode == Key.M
+            && !_titleOpen && !_pauseOpen && !_menuOpen)
+        {
+            OpenMap();
+            return;
+        }
+
         if (_menuOpen)
         {
             if (!_menuJustOpened && @event is InputEventKey close && close.Pressed && !close.Echo
