@@ -77,7 +77,7 @@ public static class Balance
             data.Upgrades.TryAdd(pair.Key, pair.Value);
 
         // Diagnóstico: en la consola de Godot aparece qué valor se ha leído del archivo.
-        GD.Print($"[balance] cubo baseCost={data.Upgrades["Bucket"].BaseCost}, goalCubes={data.GoalCubes}, fishPrice={data.FishPrice}");
+        // GD.Print($"[balance] cubo baseCost={data.Upgrades["Bucket"].BaseCost}, goalCubes={data.GoalCubes}, fishPrice={data.FishPrice}");
         return data;
     }
 
