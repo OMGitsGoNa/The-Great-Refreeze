@@ -19,7 +19,7 @@ public partial class Main : Node3D
     private const float ReachDistance = 8f;
 
     /// <summary>Tiempo entre cubos cuando mantienes el clic (con Manos ágiles): unos 20 por segundo.</summary>
-    private const float HoldInterval = 0.04f;
+    // Intervalo de Manos ágiles: lo calcula GameState.PlaceInterval (0,25 s base, baja con Colocación rápida).
 
     /// <summary>Segundos que hay que mantener E en la cubitera para una carga.</summary>
     private const float ChargeSeconds = 2f;
@@ -247,7 +247,7 @@ public partial class Main : Node3D
             if (holding && _state.HasAgileHands && _placeCooldown <= 0)
             {
                 TryPlaceAtAim(quiet: true);
-                _placeCooldown = HoldInterval;
+                _placeCooldown = _state.PlaceInterval;
             }
         }
 
@@ -299,7 +299,7 @@ public partial class Main : Node3D
             && Input.MouseMode == Input.MouseModeEnum.Captured)
         {
             TryPlaceAtAim(quiet: false);
-            _placeCooldown = HoldInterval;
+            _placeCooldown = _state.PlaceInterval;
         }
     }
 

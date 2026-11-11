@@ -120,6 +120,9 @@ public sealed class GameState
     // Brazos largos: +1 m de alcance por nivel, 10 niveles (de 3 m a 13 m). Precio provisional.
     public Upgrade LongArms { get; } = new("Brazos largos", "+1 m de alcance de colocación por nivel (máx. 10)", 20, 1.5, 10);
 
+    // Colocación rápida: con Manos ágiles, cada nivel quita 0,05 s entre colocaciones (base 0,25 s, mínimo 0,05 s). Precio provisional.
+    public Upgrade FastHands { get; } = new("Colocación rápida", "-0,05 s entre colocaciones con Manos ágiles (mín. 0,05 s)", 15, 1.6, 4);
+
     public IReadOnlyList<Upgrade> Upgrades { get; }
 
     public GameState()
@@ -128,7 +131,7 @@ public sealed class GameState
         {
             Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
             Tray, Freezer, Shovel, AgileHands, Sprint, Ramps, AutoPlacer, LauncherSpeed,
-            Flashlight, AutoFlashlight, LongArms, // las nuevas van siempre al final (el guardado usa el orden)
+            Flashlight, AutoFlashlight, LongArms, FastHands, // las nuevas van siempre al final (el guardado usa el orden)
         };
     }
 
@@ -139,6 +142,9 @@ public sealed class GameState
 
     /// <summary>Alcance de colocación desde los pies, en metros: 3 m base + 1 m por nivel de Brazos largos.</summary>
     public float ArmReach => 3f + LongArms.Level;
+
+    /// <summary>Segundos entre colocaciones con Manos ágiles: 0,25 s base, -0,05 s por nivel, mínimo 0,05 s.</summary>
+    public double PlaceInterval => Math.Max(0.05, 0.25 - 0.05 * FastHands.Level);
     public bool HasFlashlight => Flashlight.Level > 0;
     public bool HasAutoFlashlight => AutoFlashlight.Level > 0;
 
@@ -421,6 +427,9 @@ public sealed class GameState
             return false;
 
         if (upgrade == AutoFlashlight && !HasFlashlight)
+            return false;
+
+        if (upgrade == FastHands && !HasAgileHands)
             return false;
 
         Money -= cost;

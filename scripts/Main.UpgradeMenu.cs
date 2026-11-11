@@ -65,14 +65,23 @@ public partial class Main
             Upgrade u = row.Upgrade;
             bool unlock = u.MaxLevel == 1;
             bool needsLauncher = u == _state.LauncherSpeed && !_state.HasAutoPlacer;
-            bool needsBucket = (u == _state.BucketCapacityUpgrade && !_state.HasBucket) || needsLauncher;
+            bool needsHands = u == _state.FastHands && !_state.HasAgileHands;
+            bool needsBucket = (u == _state.BucketCapacityUpgrade && !_state.HasBucket) || needsLauncher || needsHands;
 
             string status = unlock
                 ? (u.IsMaxed ? "desbloqueado" : "bloqueado")
                 : $"nivel {u.Level}";
             if (needsBucket)
-                status = needsLauncher ? "requiere el lanzador" : "requiere el cubo";
+                status = needsLauncher ? "requiere el lanzador"
+                    : needsHands ? "requiere Manos ágiles"
+                    : "requiere el cubo";
             row.Info.Text = $"{u.Name}  ({status})\n{u.Description}";
+
+            // Debajo de la descripción, lo que tienes ahora mismo con esa mejora.
+            if (u == _state.FastHands)
+                row.Info.Text += $"\nAhora: una colocación cada {_state.PlaceInterval:0.00} s";
+            else if (u == _state.LongArms)
+                row.Info.Text += $"\nAhora: alcance de {_state.ArmReach:0} m";
 
             if (u.IsMaxed)
             {
