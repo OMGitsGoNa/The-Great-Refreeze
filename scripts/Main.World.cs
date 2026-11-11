@@ -437,7 +437,7 @@ public partial class Main
         if (dir.Y < -0.01f)
         {
             float t = (IceGrid.SurfaceY - origin.Y) / dir.Y;
-            if (t > 0 && t <= ReachDistance)
+            if (t > 0 && t <= ReachDistance + _state.LongArms.Level)
             {
                 Vector3 hit = origin + dir * t;
                 _aimCell = IceGrid.WorldToCell(hit);
@@ -479,16 +479,30 @@ public partial class Main
     }
 
     /// <summary>
-    /// Se puede colocar hielo en la celda: está libre, toca hielo o muelle, y no está justo bajo tus pies.
+    /// Se puede colocar hielo en la celda: está libre, toca hielo o muelle, está al alcance del brazo
+    /// y no te metes dentro del hielo (justo debajo de ti solo si estás por encima de la superficie).
     /// </summary>
     private bool CanPlaceAt(Vector2I cell)
     {
         if (!_grid.CanPlace(cell))
             return false;
 
+        // Una celda con un cubo ya volando hacia ella cuenta como ocupada: se apunta a la siguiente libre.
+        if (_flyingCells.Contains(cell))
+            return false;
+
         Vector3 center = IceGrid.CellCenter(cell);
         Vector3 feet = _player.GlobalPosition;
-        return new Vector2(center.X - feet.X, center.Z - feet.Z).Length() > 0.45f;
+        float dist = new Vector2(center.X - feet.X, center.Z - feet.Z).Length();
+
+        if (dist > _state.ArmReach) // alcance del brazo: 3 m, más 1 m por nivel de Brazos largos
+            return false;
+
+        // Justo debajo de ti: solo si tus pies están por encima de la superficie (si no, el hielo te empujaría).
+        if (dist <= 0.45f && feet.Y < IceGrid.SurfaceY + 0.05f)
+            return false;
+
+        return true;
     }
 
     /// <summary>

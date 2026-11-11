@@ -117,6 +117,9 @@ public sealed class GameState
     public Upgrade Flashlight { get; } = new("Linterna", "Se enciende con T. Ayuda de noche", 2, 1.0, 1);
     public Upgrade AutoFlashlight { get; } = new("Linterna automática", "Se enciende sola de noche", 5, 1.0, 1);
 
+    // Brazos largos: +1 m de alcance por nivel, 10 niveles (de 3 m a 13 m). Precio provisional.
+    public Upgrade LongArms { get; } = new("Brazos largos", "+1 m de alcance de colocación por nivel (máx. 10)", 20, 1.5, 10);
+
     public IReadOnlyList<Upgrade> Upgrades { get; }
 
     public GameState()
@@ -125,7 +128,7 @@ public sealed class GameState
         {
             Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
             Tray, Freezer, Shovel, AgileHands, Sprint, Ramps, AutoPlacer, LauncherSpeed,
-            Flashlight, AutoFlashlight,
+            Flashlight, AutoFlashlight, LongArms, // las nuevas van siempre al final (el guardado usa el orden)
         };
     }
 
@@ -133,6 +136,9 @@ public sealed class GameState
     public bool HasAgileHands => AgileHands.Level > 0;
     public bool HasSprint => Sprint.Level > 0;
     public bool HasAutoPlacer => AutoPlacer.Level > 0;
+
+    /// <summary>Alcance de colocación desde los pies, en metros: 3 m base + 1 m por nivel de Brazos largos.</summary>
+    public float ArmReach => 3f + LongArms.Level;
     public bool HasFlashlight => Flashlight.Level > 0;
     public bool HasAutoFlashlight => AutoFlashlight.Level > 0;
 
