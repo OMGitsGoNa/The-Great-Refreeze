@@ -22,6 +22,9 @@ public partial class TrashIcon : Control
         float h = Size.Y;
         const float line = 2f;
 
+        // Dibuja al 60 % del tamaño del control y centrado (un margen del 20 % a cada lado)
+        DrawSetTransform(Size * 0.2f, 0f, new Vector2(0.6f, 0.6f));
+
         // El dibujo ocupa el centro del control (con márgenes iguales a izquierda y derecha)
         // Asa de la tapa
         DrawRect(new Rect2(w * 0.38f, h * 0.10f, w * 0.24f, h * 0.10f), Tint, false, line);
