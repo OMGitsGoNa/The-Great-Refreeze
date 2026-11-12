@@ -156,7 +156,7 @@ public partial class Main
 
         penguin.Busy = true;
         int gen = penguin.Gen;
-        Walk(penguin, gen, PickSpot(), () => PenguinPick(penguin));
+        Walk(penguin, gen, PickSpot(penguin.Body.Position), () => PenguinPick(penguin));
     }
 
     /// <summary>En el borde de la mesa: coge un hielo y busca la celda libre más cercana a la mesa.</summary>
@@ -171,7 +171,7 @@ public partial class Main
 
         Wait(PenguinPickWait, () =>
         {
-            if (!FindNearestFreeCell(IceGrid.WorldToCell(PickSpot()), out Vector2I target))
+            if (!FindNearestFreeCell(IceGrid.WorldToCell(penguin.Body.Position), out Vector2I target))
             {
                 Abort(penguin);
                 return;
@@ -181,7 +181,7 @@ public partial class Main
             penguin.Reserved = target;
 
             Vector3 cell = IceGrid.CellCenter(target);
-            Vector3 pick = PickSpot();
+            Vector3 pick = penguin.Body.Position;
             Vector3 fromSide = new(pick.X - cell.X, 0f, pick.Z - cell.Z);
             if (fromSide.LengthSquared() < 0.01f)
                 fromSide = Vector3.Back;
@@ -256,8 +256,20 @@ public partial class Main
         return new Vector3(x, 0f, z);
     }
 
-    /// <summary>Punto del borde oeste de la mesa, donde se coge el hielo.</summary>
-    private Vector3 PickSpot() => new(PileCenter.X - TableW / 2f - 0.6f, 0f, PileCenter.Z);
+    /// <summary>
+    /// Punto de la mesa más cercano a 'from', 0,6 m fuera de ella. Así cada pingüino coge el hielo
+    /// desde el lado de la mesa donde está, sin ir siempre al mismo sitio.
+    /// </summary>
+    private Vector3 PickSpot(Vector3 from)
+    {
+        Vector3 center = new(PileCenter.X, 0f, PileCenter.Z + (TableD - TableDepth) / 2f);
+        float halfX = TableW / 2f + 0.6f;
+        float halfZ = TableD / 2f + 0.6f;
+        return new Vector3(
+            Mathf.Clamp(from.X, center.X - halfX, center.X + halfX),
+            0f,
+            Mathf.Clamp(from.Z, center.Z - halfZ, center.Z + halfZ));
+    }
 
     /// <summary>Pone un destino para el pingüino. Al llegar ejecuta arrive, si el viaje no se ha cancelado.</summary>
     private void Walk(Penguin penguin, int gen, Vector3 target, Action arrive)
