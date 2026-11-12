@@ -391,6 +391,8 @@ public partial class Main
         if (_launcher != null)
             return;
 
+        _autoPlaceTimer = 0; // lanza ya desde la compra, sin esperar lo que le quedaba al temporizador
+
         _launchMesh = new BoxMesh { Size = IceGrid.VisualSize };
         _launcher = new StaticBody3D { Position = Vector3.Zero };
         _launcher.AddChild(new MeshInstance3D
