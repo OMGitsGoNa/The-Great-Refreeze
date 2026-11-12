@@ -55,10 +55,18 @@ public partial class Main
         {
             ShowMessage(bought
                 ? $"Comprado: {upgrade.Name}"
-                : $"Te faltan {FormatMoney(upgrade.Cost - _state.Money)} para {upgrade.Name}");
+                : $"Te faltan {ShortText(upgrade)} para {upgrade.Name}");
         }
         RefreshMenu();
     }
+
+    /// <summary>Precio de la mejora en su moneda: dólares o peces.</summary>
+    private string CostText(Upgrade u) => u.CostsFish ? $"{Fmt(u.Cost)} peces" : FormatMoney(u.Cost);
+
+    /// <summary>Lo que te falta para comprar la mejora, en su moneda.</summary>
+    private string ShortText(Upgrade u) => u.CostsFish
+        ? $"{Fmt(u.Cost - _state.Fish)} peces"
+        : FormatMoney(u.Cost - _state.Money);
 
     private void RefreshMenu()
     {
@@ -68,7 +76,8 @@ public partial class Main
             bool unlock = u.MaxLevel == 1;
             bool needsLauncher = u == _state.LauncherSpeed && !_state.HasAutoPlacer;
             bool needsHands = u == _state.FastHands && !_state.HasAgileHands;
-            bool needsBucket = (u == _state.BucketCapacityUpgrade && !_state.HasBucket) || needsLauncher || needsHands;
+            bool needsPenguins = u == _state.PenguinSpeed && !_state.HasPenguins;
+            bool needsBucket = (u == _state.BucketCapacityUpgrade && !_state.HasBucket) || needsLauncher || needsHands || needsPenguins;
 
             string status = unlock
                 ? (u.IsMaxed ? "desbloqueado" : "bloqueado")
@@ -76,6 +85,7 @@ public partial class Main
             if (needsBucket)
                 status = needsLauncher ? "requiere el lanzador"
                     : needsHands ? "requiere Manos ágiles"
+                    : needsPenguins ? "requiere pingüinos"
                     : "requiere el cubo";
             // Siempre dos líneas: nombre y estado, y una descripción corta.
             // En las mejoras de tiempo y alcance, la descripción dice lo que tienes ahora mismo.
@@ -84,6 +94,8 @@ public partial class Main
                 desc = $"-0,05 s por nivel · ahora {_state.PlaceInterval:0.00} s";
             else if (u == _state.LongArms)
                 desc = $"+1 m por nivel · ahora {_state.ArmReach:0} m";
+            else if (u == _state.PenguinSpeed)
+                desc = $"-15 % de tiempo por nivel · ahora {_state.PenguinCycle:0.0} s";
             row.Info.Text = $"{u.Name}  ({status})\n{desc}";
 
             if (u.IsMaxed)
@@ -93,8 +105,8 @@ public partial class Main
             }
             else
             {
-                row.Button.Text = $"Comprar: {FormatMoney(u.Cost)}";
-                row.Button.Disabled = _state.Money < u.Cost || needsBucket;
+                row.Button.Text = $"Comprar: {CostText(u)}";
+                row.Button.Disabled = !_state.CanAfford(u) || needsBucket;
             }
         }
     }

@@ -16,6 +16,8 @@ public sealed class Upgrade
     public double CostGrowth { get; }
     public int MaxLevel { get; }
     public int Level { get; set; }
+    /// <summary>true: el precio se paga en peces; false: en dólares.</summary>
+    public bool CostsFish { get; set; }
 
     public bool IsMaxed => Level >= MaxLevel;
     /// <summary>
@@ -128,12 +130,14 @@ public sealed class GameState
 
     // Colocación rápida: con Manos ágiles, cada nivel quita 0,05 s entre colocaciones (base 0,25 s, mínimo 0,05 s). Precio provisional.
     public Upgrade FastHands { get; } = Make("FastHands", "Colocación rápida", "Colocas más rápido con Manos ágiles");
+    public Upgrade Penguins { get; } = Make("Penguins", "Pingüinos ayudantes", "Cada pingüino coge un hielo de la mesa y lo lanza");
+    public Upgrade PenguinSpeed { get; } = Make("PenguinSpeed", "Velocidad de los pingüinos", "Los pingüinos vuelven antes a por hielo");
 
     /// <summary>Crea una mejora con su precio leído de balance.json (clave = nombre en el archivo).</summary>
     private static Upgrade Make(string key, string name, string description, int? maxLevelOverride = null)
     {
         UpgradePrice p = Balance.Price(key);
-        return new Upgrade(name, description, p.BaseCost, p.Growth, maxLevelOverride ?? p.MaxLevel);
+        return new Upgrade(name, description, p.BaseCost, p.Growth, maxLevelOverride ?? p.MaxLevel) { CostsFish = p.Currency == "fish" };
     }
 
     public IReadOnlyList<Upgrade> Upgrades { get; }
@@ -144,7 +148,7 @@ public sealed class GameState
         {
             Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
             Tray, Freezer, Shovel, AgileHands, Sprint, Ramps, AutoPlacer, LauncherSpeed,
-            Flashlight, AutoFlashlight, LongArms, FastHands, // las nuevas van siempre al final (el guardado usa el orden)
+            Flashlight, AutoFlashlight, LongArms, FastHands, Penguins, PenguinSpeed, // las nuevas van siempre al final (el guardado usa el orden)
         };
     }
 
@@ -152,12 +156,22 @@ public sealed class GameState
     public bool HasAgileHands => AgileHands.Level > 0;
     public bool HasSprint => Sprint.Level > 0;
     public bool HasAutoPlacer => AutoPlacer.Level > 0;
+    public bool HasPenguins => Penguins.Level > 0;
+
+    /// <summary>¿Hay dinero o peces suficientes para pagar esta mejora?</summary>
+    public bool CanAfford(Upgrade upgrade) => upgrade.CostsFish ? Fish >= upgrade.Cost : Money >= upgrade.Cost;
 
     /// <summary>Alcance de colocación desde los pies, en metros: 3 m base + 1 m por nivel de Brazos largos.</summary>
     public float ArmReach => 3f + LongArms.Level;
 
     /// <summary>Segundos entre colocaciones con Manos ágiles: 0,25 s base, -0,05 s por nivel, mínimo 0,05 s.</summary>
     public double PlaceInterval => Math.Max(0.05, 0.25 - 0.05 * FastHands.Level);
+
+    /// <summary>Segundos entre hielos de cada pingüino (desde balance.json).</summary>
+    public double PenguinSeconds => Balance.Data.PenguinSeconds;
+
+    /// <summary>Segundos entre viajes de cada pingüino: cada nivel de Velocidad le quita un 15 %, mínimo 3 s.</summary>
+    public double PenguinCycle => Math.Max(3, PenguinSeconds * Math.Pow(0.85, PenguinSpeed.Level));
     public bool HasFlashlight => Flashlight.Level > 0;
     public bool HasAutoFlashlight => AutoFlashlight.Level > 0;
 
@@ -430,7 +444,7 @@ public sealed class GameState
     public bool TryBuy(Upgrade upgrade)
     {
         double cost = upgrade.Cost;
-        if (upgrade.IsMaxed || Money < cost)
+        if (upgrade.IsMaxed || !CanAfford(upgrade))
             return false;
 
         if (upgrade == BucketCapacityUpgrade && !HasBucket)
@@ -445,7 +459,11 @@ public sealed class GameState
         if (upgrade == FastHands && !HasAgileHands)
             return false;
 
-        Money -= cost;
+        if (upgrade == PenguinSpeed && !HasPenguins)
+            return false;
+
+        if (upgrade.CostsFish) Fish -= cost;
+        else Money -= cost;
         upgrade.Level++;
         return true;
     }

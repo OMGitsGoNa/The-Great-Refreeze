@@ -11,6 +11,9 @@ public sealed class UpgradePrice
     public double BaseCost { get; set; }
     public double Growth { get; set; } = 1.0;
     public int MaxLevel { get; set; } = 1;
+
+    /// <summary>"money" (dólares, por defecto) o "fish" (peces).</summary>
+    public string Currency { get; set; } = "money";
 }
 
 /// <summary>Todos los valores de economía que se pueden ajustar desde balance.json.</summary>
@@ -27,6 +30,15 @@ public sealed class BalanceData
 
     /// <summary>Peces de bono al completar un sector, multiplicados por su anillo.</summary>
     public double SectorBonus { get; set; } = 10;
+
+    /// <summary>Probabilidad de que un cubo salga azul (hielo de calidad).</summary>
+    public double PremiumChance { get; set; } = 0.08;
+
+    /// <summary>Peces que da un cubo azul, en veces lo normal.</summary>
+    public double PremiumMultiplier { get; set; } = 3;
+
+    /// <summary>Segundos entre hielos de cada pingüino.</summary>
+    public double PenguinSeconds { get; set; } = 20;
 
     /// <summary>Precios de cada mejora, por su clave (Bucket, Shovel, ...).</summary>
     public Dictionary<string, UpgradePrice> Upgrades { get; set; } = new();
@@ -100,5 +112,7 @@ public static class Balance
         ["AutoFlashlight"] = new UpgradePrice { BaseCost = 15, Growth = 1.0, MaxLevel = 1 },
         ["LongArms"] = new UpgradePrice { BaseCost = 5, Growth = 1.4, MaxLevel = 10 },
         ["FastHands"] = new UpgradePrice { BaseCost = 20, Growth = 1.5, MaxLevel = 4 },
+        ["Penguins"] = new UpgradePrice { BaseCost = 120, Growth = 2.0, MaxLevel = 5, Currency = "fish" },
+        ["PenguinSpeed"] = new UpgradePrice { BaseCost = 200, Growth = 1.8, MaxLevel = 4, Currency = "fish" },
     };
 }

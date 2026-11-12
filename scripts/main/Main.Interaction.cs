@@ -215,6 +215,17 @@ public partial class Main
         else
             _state.TryPlaceCube(_bucketCarried);
 
+        // Hielo azul: de vez en cuando el cubo da más peces (se suma a lo que ya dio al colocarlo).
+        if (_luck.NextDouble() < Balance.Data.PremiumChance)
+        {
+            double total = _state.FishPerCube * Balance.Data.PremiumMultiplier;
+            _state.AddFish(total - _state.FishPerCube);
+            _purchaseSound ??= Sounds.Purchase();
+            PlaySound(_purchaseSound, -8);
+            ShowMessage($"¡Hielo azul! +{Fmt(total)} peces");
+            SpawnBurst(IceGrid.CellCenter(cell) + new Vector3(0f, 0.3f, 0f), new Color(0.4f, 0.9f, 1f), 30);
+        }
+
         // Al completar un sector: bono que crece con el anillo. Las parcelas de peces dan además 1 pez por celda.
         Vector3 at = IceGrid.CellCenter(cell) + new Vector3(0f, 0.3f, 0f);
         Sector done = _sectors.RecordPlaced(cell);
@@ -329,9 +340,9 @@ public partial class Main
     }
 
     /// <summary>Lanza un cubo de hielo desde la máquina hasta la celda; al llegar se coloca de verdad.</summary>
-    private void LaunchIce(Vector2I target)
+    private void LaunchIce(Vector2I target, Vector3? from = null)
     {
-        Vector3 start = LaunchPoint;
+        Vector3 start = from ?? LaunchPoint;
         // El cubo visible tiene el centro medio cubo por debajo de la superficie, igual que al colocarlo.
         Vector3 end = IceGrid.CellCenter(target) + new Vector3(0f, -IceGrid.IceCubeSize / 2f, 0f);
 

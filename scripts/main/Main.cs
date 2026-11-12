@@ -67,6 +67,7 @@ public partial class Main : Node3D
     private sealed record UpgradeRow(Upgrade Upgrade, Label Info, Button Button);
 
     private readonly GameState _state = new();
+    private readonly Random _luck = new(); // suerte del hielo azul
     private readonly IceGrid _grid = new();
     private readonly List<UpgradeRow> _menuRows = new();
     private SectorMap _sectors;
@@ -267,6 +268,7 @@ public partial class Main : Node3D
 
         UpdateAutoPlace(delta); // el lanzador sigue funcionando aunque el menú esté abierto
         UpdateWind(delta);
+        UpdatePenguins(delta);
         UpdateFootprints(delta);
         UpdateWeather();
         UpdateHud(delta);
