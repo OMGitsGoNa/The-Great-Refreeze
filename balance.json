@@ -3,6 +3,9 @@
   "fishPrice": 0.05,
   "shovelFishPerLevel": 0.5,
   "sectorBonus": 10,
+  "premiumChance": 0.05,
+  "premiumMultiplier": 5,
+  "penguinSeconds": 5,
   "upgrades": {
     "Bucket": {
       "baseCost": 0.8,
@@ -30,7 +33,7 @@
       "maxLevel": 10
     },
     "Freezer": {
-      "baseCost": 12,
+      "baseCost": 10,
       "growth": 1.25,
       "maxLevel": 10
     },
@@ -95,9 +98,33 @@
       "growth": 1.8,
       "maxLevel": 10,
       "currency": "fish"
+    },
+    "TrayChargeSpeed": {
+      "baseCost": 0.25,
+      "growth": 2.0,
+      "maxLevel": 10
     }
   },
-  "premiumChance": 0.05,
-  "premiumMultiplier": 5,
-  "penguinSeconds": 5
+  "effects": {
+    "pileBase": 10,
+    "pileGrowth": 2.0,
+    "pileMax": 200,
+    "meltBaseSeconds": 15,
+    "meltStepSeconds": 5,
+    "bucketBase": 10,
+    "bucketStep": 10,
+    "armBaseMeters": 3,
+    "armStepMeters": 1,
+    "placeIntervalBase": 0.25,
+    "placeIntervalStep": 0.05,
+    "placeIntervalMin": 0.05,
+    "launcherBaseSeconds": 10,
+    "launcherFastestSeconds": 0.5,
+    "penguinSpeedFactor": 0.85,
+    "penguinMinSeconds": 3,
+    "chargeBaseSeconds": 2,
+    "chargeStepSeconds": 0.2,
+    "chargeMinSeconds": 0.1
+  },
+  "fishParcelMultiplier": 2
 }

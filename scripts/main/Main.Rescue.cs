@@ -107,7 +107,7 @@ public partial class Main
                     Sector done = _sectors.RecordPlaced(cell);
                     if (done != null)
                     {
-                        double bonus = _state.SectorBonusFor(done.Ring) + (done.IsFish ? done.Free : 0);
+                        double bonus = _state.SectorFishFor(done);
                         _state.AddFish(bonus);
                     }
                 }

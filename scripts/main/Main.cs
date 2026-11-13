@@ -22,7 +22,7 @@ public partial class Main : Node3D
     // Intervalo de Manos ágiles: lo calcula GameState.PlaceInterval (0,25 s base, baja con Colocación rápida).
 
     /// <summary>Segundos que hay que mantener E en la cubitera para una carga.</summary>
-    private const float ChargeSeconds = 2f;
+    // Segundos para hacer hielo con la cubitera: los da GameState.ChargeSeconds (baja con Cubitera rápida).
 
     /// <summary>El muelle ocupa 16 x 16 unidades: con celdas de 0,5 son las celdas de -16 a 15.</summary>
     private const int DockMinCell = SectorMap.DockMin;

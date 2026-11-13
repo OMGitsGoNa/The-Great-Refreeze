@@ -38,6 +38,9 @@ public sealed class EffectData
     public double LauncherFastestSeconds { get; set; } = 0.5; // segundos en el nivel máximo del lanzador
     public double PenguinSpeedFactor { get; set; } = 0.85;  // cada nivel de Velocidad multiplica el ciclo por esto
     public double PenguinMinSeconds { get; set; } = 3;      // mínimo de segundos entre viajes
+    public double ChargeBaseSeconds { get; set; } = 2;      // segundos para hacer hielo con la cubitera sin mejorar
+    public double ChargeStepSeconds { get; set; } = 0.15;   // menos por cada nivel de Cubitera rápida
+    public double ChargeMinSeconds { get; set; } = 0.1;     // mínimo
 }
 
 /// <summary>Todos los valores de economía que se pueden ajustar desde balance.json.</summary>
@@ -54,6 +57,9 @@ public sealed class BalanceData
 
     /// <summary>Peces de bono al completar un sector, multiplicados por su anillo.</summary>
     public double SectorBonus { get; set; } = 10;
+
+    /// <summary>Multiplicador de los peces de una parcela de peces completada.</summary>
+    public double FishParcelMultiplier { get; set; } = 2;
 
     /// <summary>Probabilidad de que un cubo salga azul (hielo de calidad).</summary>
     public double PremiumChance { get; set; } = 0.08;
@@ -142,5 +148,6 @@ public static class Balance
         ["FastHands"] = new UpgradePrice { BaseCost = 20, Growth = 1.5, MaxLevel = 4 },
         ["Penguins"] = new UpgradePrice { BaseCost = 120, Growth = 2.0, MaxLevel = 5, Currency = "fish" },
         ["PenguinSpeed"] = new UpgradePrice { BaseCost = 200, Growth = 1.8, MaxLevel = 4, Currency = "fish" },
+        ["TrayChargeSpeed"] = new UpgradePrice { BaseCost = 0.25, Growth = 2.0, MaxLevel = 10 },
     };
 }

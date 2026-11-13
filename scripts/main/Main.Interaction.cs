@@ -89,7 +89,7 @@ public partial class Main
         if (eHeld && onTray)
         {
             _chargeTime += delta;
-            if (_chargeTime >= ChargeSeconds)
+            if (_chargeTime >= _state.ChargeSeconds)
             {
                 double made = _state.ProduceFromTray();
                 ShowMessage(made > 0
@@ -104,7 +104,7 @@ public partial class Main
         }
 
         _chargeBar.Visible = _chargeTime > 0;
-        _chargeBar.Value = _chargeTime / ChargeSeconds;
+        _chargeBar.Value = _chargeTime / _state.ChargeSeconds;
     }
 
     private void TryPlaceAtAim(bool quiet)
@@ -231,7 +231,7 @@ public partial class Main
         Sector done = _sectors.RecordPlaced(cell);
         if (done != null)
         {
-            double bonus = _state.SectorBonusFor(done.Ring) + (done.IsFish ? done.Free : 0);
+            double bonus = _state.SectorFishFor(done);
             _state.AddFish(bonus);
             ShowMessage(done.IsFish
                 ? $"¡Parcela de peces completada! +{Fmt(bonus)} peces"

@@ -94,6 +94,8 @@ public partial class Main
                 desc = $"-{Balance.Data.Effects.PlaceIntervalStep:0.00} s por nivel · ahora {_state.PlaceInterval:0.00} s";
             else if (u == _state.LongArms)
                 desc = $"+{Balance.Data.Effects.ArmStepMeters:0} m por nivel · ahora {_state.ArmReach:0} m";
+            else if (u == _state.TrayChargeSpeed)
+                desc = $"-{Balance.Data.Effects.ChargeStepSeconds:0.00} s por nivel · ahora {_state.ChargeSeconds:0.00} s";
             else if (u == _state.PenguinSpeed)
                 desc = $"-{(1 - Balance.Data.Effects.PenguinSpeedFactor) * 100:0} % de tiempo por nivel · ahora {_state.PenguinCycle:0.0} s";
             row.Info.Text = $"{u.Name}  ({status})\n{desc}";

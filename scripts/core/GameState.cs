@@ -127,6 +127,7 @@ public sealed class GameState
     public Upgrade FastHands { get; } = Make("FastHands", "Colocación rápida", "Colocas más rápido con Manos ágiles");
     public Upgrade Penguins { get; } = Make("Penguins", "Pingüinos ayudantes", "Cada pingüino coge un hielo de la mesa y lo lanza");
     public Upgrade PenguinSpeed { get; } = Make("PenguinSpeed", "Velocidad de los pingüinos", "Los pingüinos vuelven antes a por hielo");
+    public Upgrade TrayChargeSpeed { get; } = Make("TrayChargeSpeed", "Cubitera rápida", "La cubitera hace hielo antes");
 
     /// <summary>Crea una mejora con su precio leído de balance.json (clave = nombre en el archivo).</summary>
     private static Upgrade Make(string key, string name, string description, int? maxLevelOverride = null)
@@ -143,7 +144,7 @@ public sealed class GameState
         {
             Bucket, BucketCapacityUpgrade, TableCapacityUpgrade, ToughTableUpgrade,
             Tray, Freezer, Shovel, AgileHands, Sprint, Ramps, AutoPlacer, LauncherSpeed,
-            Flashlight, AutoFlashlight, LongArms, FastHands, Penguins, PenguinSpeed, // las nuevas van siempre al final (el guardado usa el orden)
+            Flashlight, AutoFlashlight, LongArms, FastHands, Penguins, PenguinSpeed, TrayChargeSpeed, // las nuevas van siempre al final (el guardado usa el orden)
         };
     }
 
@@ -228,6 +229,9 @@ public sealed class GameState
 
     /// <summary>Segundos que tarda en derretirse un hielo de la mesa.</summary>
     public double MeltTime => E.MeltBaseSeconds + E.MeltStepSeconds * ToughTableUpgrade.Level;
+
+    /// <summary>Segundos que tarda la cubitera en hacer hielo: baja con Cubitera rápida.</summary>
+    public double ChargeSeconds => Math.Max(E.ChargeMinSeconds, E.ChargeBaseSeconds - E.ChargeStepSeconds * TrayChargeSpeed.Level);
 
     public double IcePerUse => 1 + Tray.Level;
     public double IcePerSecond => Freezer.Level * FreezerRate;
@@ -366,7 +370,19 @@ public sealed class GameState
     public void AddMoney(double amount) => Money += amount;
 
     /// <summary>Peces que da completar un sector del anillo indicado: el bono base multiplicado por el anillo.</summary>
-    public double SectorBonusFor(int ring) => SectorBonus * ring;
+    /// <summary>
+    /// Peces que da una parcela al completarla: cubos colocados en ella / 2 × anillo.
+    /// Si es parcela de peces, ese número se multiplica por fishParcelMultiplier (balance.json).
+    /// </summary>
+    public double SectorFishFor(Sector sector)
+    {
+        double fish = sector.Filled / 2.0 * sector.Ring;
+        if (sector.IsFish)
+            fish *= Balance.Data.FishParcelMultiplier;
+
+        // Redondeo a entero: desde x,5 hacia arriba, por debajo hacia abajo.
+        return Math.Floor(fish + 0.5);
+    }
 
     /// <summary>Gasta peces si hay suficientes. Devuelve false si no alcanzan.</summary>
     public bool TrySpendFish(double amount)
