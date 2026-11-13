@@ -30,12 +30,15 @@ public partial class Main
                 break;
 
             case StationKind.Upgrades:
+                PlayMachineUse(station, new Color(1f, 0.8f, 0.5f));
                 if (!_menuOpen) // con el menú abierto, E lo cierra (lo gestiona Main), no lo reabre
                     OpenMenu();
                 break;
 
             case StationKind.Sell:
                 double earned = _state.SellFish();
+                if (earned > 0)
+                    PlayMachineUse(station, new Color(1f, 0.85f, 0.3f));
                 ShowMessage(earned > 0
                     ? $"Peces enviados: +{FormatMoney(earned)}"
                     : "No tienes peces que enviar");
@@ -92,6 +95,8 @@ public partial class Main
             if (_chargeTime >= _state.ChargeSeconds)
             {
                 double made = _state.ProduceFromTray();
+                if (made > 0)
+                    PlayMachineUse(_player.LookedStation, new Color(0.7f, 0.9f, 1f));
                 ShowMessage(made > 0
                     ? $"+{Fmt(made)} hielo a la mesa"
                     : $"La mesa está llena ({_state.PileMax} máximo)");
@@ -342,6 +347,7 @@ public partial class Main
     /// <summary>Lanza un cubo de hielo desde la máquina hasta la celda; al llegar se coloca de verdad.</summary>
     private void LaunchIce(Vector2I target, Vector3? from = null)
     {
+        PulseLauncher();
         Vector3 start = from ?? LaunchPoint;
         // El cubo visible tiene el centro medio cubo por debajo de la superficie, igual que al colocarlo.
         Vector3 end = IceGrid.CellCenter(target) + new Vector3(0f, -IceGrid.IceCubeSize / 2f, 0f);
@@ -398,7 +404,7 @@ public partial class Main
         _launcher.AddChild(new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(1.2f, 1.0f, 1.2f) },
-            MaterialOverride = Mat(new Color(0.35f, 0.45f, 0.55f)),
+            MaterialOverride = Mat(new Color(0.6f, 0.8f, 0.95f)),
             Position = new Vector3(0, 0.5f, 0),
         });
         _launcher.AddChild(new CollisionShape3D
@@ -409,8 +415,14 @@ public partial class Main
         _launcher.AddChild(new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(0.4f, 0.4f, 0.8f) },
-            MaterialOverride = Mat(new Color(0.2f, 0.25f, 0.3f)),
+            MaterialOverride = Mat(new Color(0.9f, 0.6f, 0.8f)),
             Position = new Vector3(0, 1.15f, 0),
+        });
+        _launcher.AddChild(new MeshInstance3D // cúpula de adorno
+        {
+            Mesh = new SphereMesh { Radius = 0.3f, Height = 0.6f },
+            MaterialOverride = Mat(new Color(0.7f, 0.9f, 1f)),
+            Position = new Vector3(0, 1.0f, 0),
         });
         _launcher.AddChild(new Label3D
         {

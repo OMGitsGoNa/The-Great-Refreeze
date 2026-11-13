@@ -167,6 +167,7 @@ public partial class Main
     private void UpdateHud(double delta)
     {
         RefreshPile();
+        UpdateBucketVisuals();
         UpdateArcticLook();
         HandleFlashlightKey();
         UpdateDayNight();

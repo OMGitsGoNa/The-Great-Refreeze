@@ -367,21 +367,42 @@ public partial class Main
         body.AddChild(new MeshInstance3D
         {
             Mesh = new CapsuleMesh { Radius = 0.22f, Height = 0.8f },
-            MaterialOverride = Mat(new Color(0.12f, 0.13f, 0.16f)),
+            MaterialOverride = Mat(new Color(0.42f, 0.56f, 0.82f)),
             Position = new Vector3(0, 0.4f, 0),
         });
         body.AddChild(new MeshInstance3D
         {
             Mesh = new SphereMesh { Radius = 0.16f, Height = 0.4f },
-            MaterialOverride = Mat(new Color(0.95f, 0.95f, 0.95f)),
+            MaterialOverride = Mat(new Color(1f, 0.96f, 0.9f)),
             Position = new Vector3(0, 0.36f, 0.14f),
         });
         body.AddChild(new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(0.1f, 0.06f, 0.14f) },
-            MaterialOverride = Mat(new Color(1f, 0.55f, 0.1f)),
+            MaterialOverride = Mat(new Color(1f, 0.7f, 0.35f)),
             Position = new Vector3(0, 0.68f, 0.26f),
         });
+        foreach (float side in new[] { -1f, 1f })
+        {
+            body.AddChild(new MeshInstance3D // ojo
+            {
+                Mesh = new SphereMesh { Radius = 0.035f, Height = 0.07f },
+                MaterialOverride = Mat(new Color(0.15f, 0.12f, 0.2f)),
+                Position = new Vector3(side * 0.08f, 0.62f, 0.19f),
+            });
+            body.AddChild(new MeshInstance3D // mejilla rosa
+            {
+                Mesh = new SphereMesh { Radius = 0.04f, Height = 0.08f },
+                MaterialOverride = Mat(new Color(1f, 0.55f, 0.7f)),
+                Position = new Vector3(side * 0.12f, 0.5f, 0.17f),
+            });
+            body.AddChild(new MeshInstance3D // patita
+            {
+                Mesh = new BoxMesh { Size = new Vector3(0.1f, 0.04f, 0.14f) },
+                MaterialOverride = Mat(new Color(1f, 0.7f, 0.35f)),
+                Position = new Vector3(side * 0.08f, 0.02f, 0.05f),
+            });
+        }
 
         // Salen escalonados (1 s entre uno y otro) para que no vayan todos a la vez.
         return new Penguin { Body = body, Spot = spot, Timer = 1.0 + index };

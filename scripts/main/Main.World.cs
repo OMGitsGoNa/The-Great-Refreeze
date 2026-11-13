@@ -45,7 +45,7 @@ public partial class Main
         dock.AddChild(new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(15, 1, 15) },
-            MaterialOverride = Mat(new Color(0.45f, 0.4f, 0.35f)),
+            MaterialOverride = Mat(new Color(0.8f, 0.66f, 0.52f)),
         });
         dock.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(15, 1, 15) } });
         AddChild(dock);
@@ -75,10 +75,10 @@ public partial class Main
         AddChild(_trayLight);
 
         MakeStation(StationKind.Upgrades, "[E] Máquina de mejoras", "Mejoras",
-            new Vector3(4, 0, -4), new Vector3(1.6f, 1.6f, 1.6f), new Color(0.9f, 0.6f, 0.2f));
+            new Vector3(4, 0, -4), new Vector3(1.6f, 1.6f, 1.6f), new Color(1f, 0.7f, 0.4f));
 
         MakeStation(StationKind.Sell, "[E] Enviar peces a empresas", "Empresas",
-            new Vector3(-6, 0, 4), new Vector3(1.6f, 1.4f, 1.6f), new Color(0.2f, 0.7f, 0.6f));
+            new Vector3(-6, 0, 4), new Vector3(1.6f, 1.4f, 1.6f), new Color(0.4f, 0.9f, 0.7f));
 
         BuildPile();
         BuildBucket();
@@ -97,20 +97,29 @@ public partial class Main
             AddChild(new MeshInstance3D
             {
                 Mesh = new BoxMesh { Size = new Vector3(15f, 0.02f, 0.9f) },
-                MaterialOverride = Mat(new Color(0.5f * shade, 0.42f * shade, 0.32f * shade)),
+                MaterialOverride = Mat(new Color(0.84f * shade, 0.7f * shade, 0.56f * shade)),
                 Position = new Vector3(0, 0.01f, -7f + i),
             });
         }
 
-        var metal = Mat(new Color(0.25f, 0.27f, 0.3f));
+        var metal = Mat(new Color(0.55f, 0.8f, 0.78f));
+        var cap = Mat(new Color(0.98f, 0.6f, 0.72f));
         foreach (float x in new[] { -7f, 7f })
             foreach (float z in new[] { -7f, 7f })
+            {
                 AddChild(new MeshInstance3D
                 {
                     Mesh = new CylinderMesh { TopRadius = 0.18f, BottomRadius = 0.2f, Height = 0.5f },
                     MaterialOverride = metal,
                     Position = new Vector3(x, 0.25f, z),
                 });
+                AddChild(new MeshInstance3D // bolardo con bola de color
+                {
+                    Mesh = new SphereMesh { Radius = 0.22f, Height = 0.44f },
+                    MaterialOverride = cap,
+                    Position = new Vector3(x, 0.55f, z),
+                });
+            }
 
         AddCrate(new Vector3(6f, 0.3f, -6f), 0.6f);
         AddCrate(new Vector3(6.6f, 0.25f, -5.2f), 0.5f);
@@ -123,12 +132,12 @@ public partial class Main
         crate.AddChild(new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(size, size, size) },
-            MaterialOverride = Mat(new Color(0.6f, 0.48f, 0.3f)),
+            MaterialOverride = Mat(new Color(0.86f, 0.66f, 0.44f)),
         });
         crate.AddChild(new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(size + 0.02f, 0.05f, size + 0.02f) },
-            MaterialOverride = Mat(new Color(0.35f, 0.27f, 0.18f)),
+            MaterialOverride = Mat(new Color(0.9f, 0.45f, 0.6f)), // lazo rosa
             Position = new Vector3(0, size / 2f - 0.02f, 0),
         });
         crate.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(size, size, size) } });
@@ -188,7 +197,7 @@ public partial class Main
         _tableRoot = new Node3D();
         _pile.AddChild(_tableRoot);
 
-        var wood = Mat(new Color(0.55f, 0.4f, 0.25f));
+        var wood = Mat(new Color(0.82f, 0.62f, 0.45f));
         const float topThickness = 0.1f;
 
         _tableRoot.AddChild(new MeshInstance3D
@@ -288,11 +297,21 @@ public partial class Main
             Position = BucketRestPosition,
             Visible = false,
         };
-        _bucket.AddChild(new MeshInstance3D
+        // Cubo abierto: paredes y fondo, para que se vea el hielo de dentro.
+        const float wall = 0.05f;
+        Vector3 s = BucketSize;
+        foreach (var (size, pos) in new (Vector3, Vector3)[]
         {
-            Mesh = new BoxMesh { Size = BucketSize },
-            MaterialOverride = _bucketMaterial,
-        });
+            (new Vector3(s.X, s.Y, wall), new Vector3(0, 0, s.Z / 2f - wall / 2f)),
+            (new Vector3(s.X, s.Y, wall), new Vector3(0, 0, -s.Z / 2f + wall / 2f)),
+            (new Vector3(wall, s.Y, s.Z), new Vector3(s.X / 2f - wall / 2f, 0, 0)),
+            (new Vector3(wall, s.Y, s.Z), new Vector3(-s.X / 2f + wall / 2f, 0, 0)),
+            (new Vector3(s.X, wall, s.Z), new Vector3(0, -s.Y / 2f + wall / 2f, 0)),
+        })
+        {
+            _bucket.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = size }, MaterialOverride = _bucketMaterial, Position = pos });
+        }
+        BuildBucketIce();
         _bucket.AddChild(new MeshInstance3D // asa: barra cuadrada sobre el cubo
         {
             Mesh = new BoxMesh { Size = new Vector3(BucketSize.X * 0.8f, 0.05f, 0.05f) },
@@ -333,19 +352,23 @@ public partial class Main
     /// </summary>
     private void Decorate(Node3D station, StationKind kind, Vector3 size, Color color)
     {
-        Color metal = new Color(0.78f, 0.82f, 0.86f);
-        Color dark = new Color(0.18f, 0.2f, 0.24f);
+        Color metal = new Color(0.85f, 0.88f, 0.95f);
+        Color dark = new Color(0.35f, 0.3f, 0.42f);
         Color screen = kind switch
         {
-            StationKind.Tray => new Color(0.5f, 0.85f, 1f),
-            StationKind.Upgrades => new Color(1f, 0.7f, 0.25f),
-            StationKind.Sell => new Color(0.3f, 1f, 0.6f),
+            StationKind.Tray => new Color(0.6f, 0.85f, 1f),
+            StationKind.Upgrades => new Color(1f, 0.75f, 0.4f),
+            StationKind.Sell => new Color(0.45f, 0.95f, 0.75f),
             _ => Colors.White,
         };
 
         // Zócalo oscuro abajo, borde metálico arriba.
         AddPart(station, new Vector3(size.X + 0.1f, 0.15f, size.Z + 0.1f), new Vector3(0, -size.Y / 2f + 0.075f, 0), dark);
         AddPart(station, new Vector3(size.X + 0.04f, 0.08f, size.Z + 0.04f), new Vector3(0, size.Y / 2f + 0.04f, 0), metal);
+        // Tejadillo a rayas pastel y una bolita de adorno encima.
+        AddPart(station, new Vector3(size.X + 0.2f, 0.14f, size.Z + 0.2f), new Vector3(0, size.Y / 2f + 0.16f, 0), new Color(1f, 0.6f, 0.7f));
+        AddPart(station, new Vector3(size.X + 0.2f, 0.14f, 0.12f), new Vector3(0, size.Y / 2f + 0.16f, 0), new Color(0.7f, 0.9f, 1f));
+        AddPart(station, new Vector3(0.22f, 0.22f, 0.22f), new Vector3(0, size.Y / 2f + 0.37f, 0), new Color(1f, 0.9f, 0.55f));
 
         // Pantalla frontal y tres luces de estado.
         AddPart(station, new Vector3(size.X * 0.6f, size.Y * 0.3f, 0.04f), new Vector3(0, size.Y * 0.1f, size.Z / 2f + 0.02f), dark, screen);
