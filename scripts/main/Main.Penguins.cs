@@ -38,22 +38,19 @@ public partial class Main
     private const float RampBottomDist = 8.6f;     // al pie de la rampa, ya en el hielo
     private static readonly Vector3[] RampDirs = { new(1f, 0f, 0f), new(-1f, 0f, 0f), new(0f, 0f, 1f), new(0f, 0f, -1f) };
 
-    // Puestos de salida en el muelle, junto al borde oeste.
-    private static readonly Vector3[] PenguinSpots =
+    /// <summary>Puesto de salida del pingüino n: reparte los pingüinos en un anillo alrededor de la base, sin límite.</summary>
+    private static Vector3 PenguinSpot(int index)
     {
-        new(-7f, 0f, -6f),
-        new(-7f, 0f, -3f),
-        new(-7f, 0f, 0f),
-        new(-7f, 0f, 2.5f),
-        new(-4.5f, 0f, 6f),
-    };
+        float angle = index * 2.4f; // ángulo áureo: no quedan alineados
+        return new Vector3(Mathf.Cos(angle) * 6.8f, 0f, Mathf.Sin(angle) * 6.8f);
+    }
 
     private readonly List<Penguin> _penguins = new();
 
     /// <summary>Cada frame: ajusta cuántos pingüinos hay según la mejora, mueve a cada uno y cuenta su tiempo.</summary>
     private void UpdatePenguins(double delta)
     {
-        int wanted = Mathf.Min(_state.Penguins.Level, PenguinSpots.Length);
+        int wanted = _state.Penguins.Level;
 
         while (_penguins.Count < wanted)
             _penguins.Add(SpawnPenguin(_penguins.Count));
@@ -352,7 +349,7 @@ public partial class Main
     /// <summary>Crea un pingüino con cuerpo físico: cuerpo negro, barriga blanca y pico naranja.</summary>
     private Penguin SpawnPenguin(int index)
     {
-        Vector3 spot = PenguinSpots[index];
+        Vector3 spot = PenguinSpot(index);
         var body = new CharacterBody3D
         {
             Position = spot,

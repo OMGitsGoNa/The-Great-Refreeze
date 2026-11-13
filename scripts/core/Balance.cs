@@ -16,6 +16,30 @@ public sealed class UpgradePrice
     public string Currency { get; set; } = "money";
 }
 
+/// <summary>
+/// Cómo cambia cada mejora por nivel (capacidades, tiempos, alcance). Se lee del bloque "effects" de balance.json;
+/// las claves que falten usan estos valores por defecto.
+/// </summary>
+public sealed class EffectData
+{
+    public double PileBase { get; set; } = 10;          // hielo máximo de la mesa sin mejorar
+    public double PileGrowth { get; set; } = 2.0;       // cada nivel de Mesa lo multiplica
+    public double PileMax { get; set; } = 200;          // tope de la mesa
+    public double MeltBaseSeconds { get; set; } = 15;   // segundos antes de derretirse
+    public double MeltStepSeconds { get; set; } = 5;    // más por cada nivel de Mesa resistente
+    public int BucketBase { get; set; } = 10;           // capacidad del cubo sin mejorar
+    public int BucketStep { get; set; } = 10;           // más por cada nivel de Capacidad del cubo
+    public double ArmBaseMeters { get; set; } = 3;      // alcance sin mejorar
+    public double ArmStepMeters { get; set; } = 1;      // más por cada nivel de Brazos largos
+    public double PlaceIntervalBase { get; set; } = 0.25; // segundos entre colocaciones sin mejorar
+    public double PlaceIntervalStep { get; set; } = 0.05; // menos por cada nivel de Colocación rápida
+    public double PlaceIntervalMin { get; set; } = 0.05;  // mínimo
+    public double LauncherBaseSeconds { get; set; } = 10;   // segundos entre lanzamientos sin mejorar
+    public double LauncherFastestSeconds { get; set; } = 0.5; // segundos en el nivel máximo del lanzador
+    public double PenguinSpeedFactor { get; set; } = 0.85;  // cada nivel de Velocidad multiplica el ciclo por esto
+    public double PenguinMinSeconds { get; set; } = 3;      // mínimo de segundos entre viajes
+}
+
 /// <summary>Todos los valores de economía que se pueden ajustar desde balance.json.</summary>
 public sealed class BalanceData
 {
@@ -42,6 +66,9 @@ public sealed class BalanceData
 
     /// <summary>Precios de cada mejora, por su clave (Bucket, Shovel, ...).</summary>
     public Dictionary<string, UpgradePrice> Upgrades { get; set; } = new();
+
+    /// <summary>Efectos de las mejoras por nivel.</summary>
+    public EffectData Effects { get; set; } = new();
 }
 
 /// <summary>
@@ -84,6 +111,7 @@ public static class Balance
 
         data ??= new BalanceData();
         data.Upgrades ??= new Dictionary<string, UpgradePrice>();
+        data.Effects ??= new EffectData();
 
         foreach (var pair in Defaults())
             data.Upgrades.TryAdd(pair.Key, pair.Value);

@@ -91,11 +91,11 @@ public partial class Main
             // En las mejoras de tiempo y alcance, la descripción dice lo que tienes ahora mismo.
             string desc = u.Description;
             if (u == _state.FastHands)
-                desc = $"-0,05 s por nivel · ahora {_state.PlaceInterval:0.00} s";
+                desc = $"-{Balance.Data.Effects.PlaceIntervalStep:0.00} s por nivel · ahora {_state.PlaceInterval:0.00} s";
             else if (u == _state.LongArms)
-                desc = $"+1 m por nivel · ahora {_state.ArmReach:0} m";
+                desc = $"+{Balance.Data.Effects.ArmStepMeters:0} m por nivel · ahora {_state.ArmReach:0} m";
             else if (u == _state.PenguinSpeed)
-                desc = $"-15 % de tiempo por nivel · ahora {_state.PenguinCycle:0.0} s";
+                desc = $"-{(1 - Balance.Data.Effects.PenguinSpeedFactor) * 100:0} % de tiempo por nivel · ahora {_state.PenguinCycle:0.0} s";
             row.Info.Text = $"{u.Name}  ({status})\n{desc}";
 
             if (u.IsMaxed)

@@ -68,18 +68,13 @@ public sealed class GameState
     public const double BearMoneyReward = 5;
 
     /// <summary>Hielos que caben sobre la mesa sin mejorar, y cuántos añade cada mejora (10, 29... hasta 200).</summary>
-    public static readonly int[] PileSizes = { 10, 20, 40, 80, 160, 200 };
 
     /// <summary>Segundos base entre derretimientos de un hielo del montón, y cuántos añade cada mejora de mesa resistente.</summary>
-    public const double MeltBaseSeconds = 15;
-    public const double MeltStepSeconds = 5;
 
     /// <summary>Hielo que se puede llevar en la mano sin cubo.</summary>
     public const int HandCapacity = 1;
 
     /// <summary>Capacidad del cubo sin mejorar, y cuánto añade cada mejora.</summary>
-    public const int BucketBase = 10;
-    public const int BucketStep = 10;
 
     /// <summary>Fracción de peces y dinero que se pierde al congelarse en el agua.</summary>
     public const double DrowningPenalty = 0.10;
@@ -118,7 +113,7 @@ public sealed class GameState
     public Upgrade LauncherSpeed { get; } = Make("LauncherSpeed", "Velocidad del lanzador", "Lanza más rápido: 10 s → 0,5 s");
 
     // Mesa: ambas empiezan en 2 $ y suben progresivamente.
-    public Upgrade TableCapacityUpgrade { get; } = Make("TableCapacity", "Mesa más grande", "Más hielo en la mesa", Math.Min(Balance.Price("TableCapacity").MaxLevel, PileSizes.Length - 1));
+    public Upgrade TableCapacityUpgrade { get; } = Make("TableCapacity", "Mesa más grande", "Más hielo en la mesa");
     public Upgrade ToughTableUpgrade { get; } = Make("ToughTable", "Mesa resistente", "+5 s antes de derretirse");
 
     // Linterna: 2 $ y se enciende con T. La automática cuesta 5 $ y se enciende sola de noche.
@@ -162,16 +157,19 @@ public sealed class GameState
     public bool CanAfford(Upgrade upgrade) => upgrade.CostsFish ? Fish >= upgrade.Cost : Money >= upgrade.Cost;
 
     /// <summary>Alcance de colocación desde los pies, en metros: 3 m base + 1 m por nivel de Brazos largos.</summary>
-    public float ArmReach => 3f + LongArms.Level;
+    public float ArmReach => (float)(E.ArmBaseMeters + E.ArmStepMeters * LongArms.Level);
+
+    /// <summary>Efectos de las mejoras por nivel, desde balance.json.</summary>
+    private static EffectData E => Balance.Data.Effects;
 
     /// <summary>Segundos entre colocaciones con Manos ágiles: 0,25 s base, -0,05 s por nivel, mínimo 0,05 s.</summary>
-    public double PlaceInterval => Math.Max(0.05, 0.25 - 0.05 * FastHands.Level);
+    public double PlaceInterval => Math.Max(E.PlaceIntervalMin, E.PlaceIntervalBase - E.PlaceIntervalStep * FastHands.Level);
 
     /// <summary>Segundos entre hielos de cada pingüino (desde balance.json).</summary>
     public double PenguinSeconds => Balance.Data.PenguinSeconds;
 
     /// <summary>Segundos entre viajes de cada pingüino: cada nivel de Velocidad le quita un 15 %, mínimo 3 s.</summary>
-    public double PenguinCycle => Math.Max(3, PenguinSeconds * Math.Pow(0.85, PenguinSpeed.Level));
+    public double PenguinCycle => Math.Max(E.PenguinMinSeconds, PenguinSeconds * Math.Pow(E.PenguinSpeedFactor, PenguinSpeed.Level));
     public bool HasFlashlight => Flashlight.Level > 0;
     public bool HasAutoFlashlight => AutoFlashlight.Level > 0;
 
@@ -220,16 +218,16 @@ public sealed class GameState
     }
 
     /// <summary>Segundos entre lanzamientos: 10 s sin mejorar, bajando de forma exponencial hasta 0,5 s en el nivel 20.</summary>
-    public double LaunchSeconds => 10.0 * Math.Pow(0.05, LauncherSpeed.Level / (double)LauncherSpeed.MaxLevel);
+    public double LaunchSeconds => E.LauncherBaseSeconds * Math.Pow(E.LauncherFastestSeconds / E.LauncherBaseSeconds, LauncherSpeed.Level / (double)LauncherSpeed.MaxLevel);
 
     /// <summary>Capacidad actual del cubo: 10, 20, 30, 40 o 50.</summary>
-    public int BucketMax => BucketBase + BucketStep * BucketCapacityUpgrade.Level;
+    public int BucketMax => E.BucketBase + E.BucketStep * BucketCapacityUpgrade.Level;
 
     /// <summary>Capacidad actual de la mesa: 10, 20, 40, 80, 160 o 200 (cada mejora la duplica).</summary>
-    public int PileMax => PileSizes[TableCapacityUpgrade.Level];
+    public int PileMax => (int)Math.Min(E.PileMax, Math.Round(E.PileBase * Math.Pow(E.PileGrowth, TableCapacityUpgrade.Level)));
 
     /// <summary>Segundos que tarda en derretirse un hielo de la mesa.</summary>
-    public double MeltTime => MeltBaseSeconds + MeltStepSeconds * ToughTableUpgrade.Level;
+    public double MeltTime => E.MeltBaseSeconds + E.MeltStepSeconds * ToughTableUpgrade.Level;
 
     public double IcePerUse => 1 + Tray.Level;
     public double IcePerSecond => Freezer.Level * FreezerRate;

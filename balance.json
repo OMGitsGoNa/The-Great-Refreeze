@@ -10,17 +10,17 @@
       "maxLevel": 1
     },
     "BucketCapacity": {
-      "baseCost": 2,
+      "baseCost": 1,
       "growth": 1.25,
       "maxLevel": 19
     },
     "TableCapacity": {
-      "baseCost": 5,
+      "baseCost": 3,
       "growth": 1.5,
       "maxLevel": 8
     },
     "ToughTable": {
-      "baseCost": 5,
+      "baseCost": 0.5,
       "growth": 1.5,
       "maxLevel": 5
     },
@@ -45,37 +45,37 @@
       "maxLevel": 1
     },
     "Sprint": {
-      "baseCost": 10,
+      "baseCost": 5,
       "growth": 1.0,
       "maxLevel": 1
     },
     "Ramps": {
-      "baseCost": 6,
+      "baseCost": 3,
       "growth": 1.0,
       "maxLevel": 1
     },
     "AutoPlacer": {
-      "baseCost": 60,
+      "baseCost": 50,
       "growth": 1.0,
       "maxLevel": 1
     },
     "LauncherSpeed": {
-      "baseCost": 8,
+      "baseCost": 5,
       "growth": 1.12,
-      "maxLevel": 20
+      "maxLevel": 50
     },
     "Flashlight": {
-      "baseCost": 4,
+      "baseCost": 5,
       "growth": 1.0,
       "maxLevel": 1
     },
     "AutoFlashlight": {
-      "baseCost": 150000,
+      "baseCost": 10,
       "growth": 1.0,
       "maxLevel": 1
     },
     "LongArms": {
-      "baseCost": 5,
+      "baseCost": 20,
       "growth": 1.4,
       "maxLevel": 10
     },
@@ -85,19 +85,19 @@
       "maxLevel": 4
     },
     "Penguins": {
-      "baseCost": 120,
+      "baseCost": 100,
       "growth": 2.0,
-      "maxLevel": 5,
+      "maxLevel": 10,
       "currency": "fish"
     },
     "PenguinSpeed": {
-      "baseCost": 200,
+      "baseCost": 50,
       "growth": 1.8,
-      "maxLevel": 4,
+      "maxLevel": 10,
       "currency": "fish"
     }
   },
-  "premiumChance": 0.08,
-  "premiumMultiplier": 3,
-  "penguinSeconds": 6
+  "premiumChance": 0.05,
+  "premiumMultiplier": 5,
+  "penguinSeconds": 5
 }
